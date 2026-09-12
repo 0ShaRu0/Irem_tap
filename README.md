@@ -1,5 +1,7 @@
 # iram_tap
 
+image by https://x.com/Drataniar
+
 Windows 10/11과 OBS에서 사용하는 5이미지 입력 오버레이입니다. 전역 키보드와 마우스 이동을 감지하므로 게임이나 다른 창이 활성화된 상태에서도 동작합니다.
 
 ## 동작
