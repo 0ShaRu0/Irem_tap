@@ -3,7 +3,7 @@
   "window_height": 280,
   "window_x": 2223,
   "window_y": 199,
-  "window_position_locked": true,
+  "window_position_locked": false,
   "fps": 60,
   "always_on_top": true,
   "borderless": true,
