@@ -40,7 +40,11 @@ class LayerRenderer:
         self.reload_config(config)
 
     def reload_config(
-        self, config: dict[str, Any], *, selected_character_path: str | None = None
+        self,
+        config: dict[str, Any],
+        *,
+        selected_character_path: str | None = None,
+        selected_character_open_path: str | None = None,
     ) -> None:
         self.config = config
         new_size = (self.config["window_width"], self.config["window_height"])
@@ -55,24 +59,34 @@ class LayerRenderer:
         if self.images["character"].surface is None and previous_character is not None:
             self.images["character"] = previous_character
         self._selected_character = self.images["character"]
-        open_spec = {
-            **self.config["images"]["character"],
-            "path": self.config["microphone_open_image"],
-        }
-        self._open_character = self._load_image("character_open", open_spec)
+        open_path = (
+            self.config["microphone_open_image"]
+            if selected_character_path is None
+            else selected_character_open_path
+        )
+        self._open_character = self._load_open_character(open_path)
         self._apply_character_state()
         right = self.images["right_hand_mouse"]
         self._right_position = [right.position[0], right.position[1]]
         self._glow_cache.clear()
 
-    def select_character(self, path_value: str) -> bool:
+    def select_character(
+        self, path_value: str, open_path_value: str | None = None
+    ) -> bool:
         spec = {**self.config["images"]["character"], "path": path_value}
         character = self._load_image("character", spec)
         if character.surface is None:
             return False
         self._selected_character = character
+        self._open_character = self._load_open_character(open_path_value)
         self._apply_character_state()
         return True
+
+    def _load_open_character(self, path_value: str | None) -> LoadedImage | None:
+        if path_value is None:
+            return None
+        spec = {**self.config["images"]["character"], "path": path_value}
+        return self._load_image("character_open", spec)
 
     def set_microphone_active(self, active: bool) -> None:
         active = bool(active)

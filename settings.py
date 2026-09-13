@@ -371,8 +371,8 @@ class SettingsEditor:
         )
         ttk.Label(
             parent,
-            text="숫자패드 0의 기본 캐릭터에서만 마이크 표정이 표시됩니다.\n"
-            "주변 소음에도 반응하면 임계값을 높이세요.",
+            text="숫자패드 표정은 같은 번호의 _open PNG를 사용합니다.\n"
+            "파일이 없으면 일반 표정을 유지합니다.",
             wraplength=335,
             foreground="#555555",
         ).grid(row=6, column=0, columnspan=3, sticky=tk.W, pady=10)

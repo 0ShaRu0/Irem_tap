@@ -407,33 +407,38 @@ class CharacterSelectionTests(unittest.TestCase):
         app.renderer = Mock()
         app.renderer.select_character.return_value = True
         app.selected_character_path = None
+        app.selected_character_open_path = None
         app.microphone_manager = Mock()
         app.microphone_manager.is_active.return_value = False
         app._asset_state = Mock(return_value={"selected": None})
 
         expected_paths = {
-            1: "image/character1.png",
-            2: "image/character2.png",
-            3: "image/character3.png",
-            4: "image/character4.png",
-            5: "image/character5.png",
-            6: "image/character6.png",
-            7: "image/character7.png",
-            8: "image/character8.png",
-            9: "image/character9.png",
+            1: ("image/character1.png", "image/character1_open.png"),
+            2: ("image/character2.png", "image/character2_open.png"),
+            3: ("image/character3.png", "image/character3_open.png"),
+            4: ("image/character4.png", "image/character4_open.png"),
+            5: ("image/character5.png", "image/character5_open.png"),
+            6: ("image/character6.png", "image/character6_open.png"),
+            7: ("image/character7.png", "image/character7_open.png"),
+            8: ("image/character8.png", "image/character8_open.png"),
+            9: ("image/character9.png", "image/character9_open.png"),
         }
-        for number, path in expected_paths.items():
+        for number, (path, open_path) in expected_paths.items():
             app.renderer.select_character.reset_mock()
             app._handle_action(f"select_character:{number}")
-            app.renderer.select_character.assert_called_once_with(path)
+            app.renderer.select_character.assert_called_once_with(path, open_path)
             self.assertEqual(app.selected_character_path, path)
+            self.assertEqual(app.selected_character_open_path, open_path)
             self.assertEqual(app.asset_state, {"selected": None})
 
         app.renderer.select_character.reset_mock()
         app._handle_action("select_character:0")
 
-        app.renderer.select_character.assert_called_once_with("image/character.png")
+        app.renderer.select_character.assert_called_once_with(
+            "image/character.png", "image/character_open.png"
+        )
         self.assertIsNone(app.selected_character_path)
+        self.assertIsNone(app.selected_character_open_path)
 
     def test_failed_character_switch_keeps_current_selection(self) -> None:
         app = object.__new__(OverlayApp)
@@ -441,15 +446,21 @@ class CharacterSelectionTests(unittest.TestCase):
         app.renderer = Mock()
         app.renderer.select_character.return_value = False
         app.selected_character_path = "image/character3.png"
+        app.selected_character_open_path = "image/character3_open.png"
         app._asset_state = Mock()
 
         app._select_character(4)
 
         self.assertEqual(app.selected_character_path, "image/character3.png")
-        app.renderer.select_character.assert_called_once_with("image/character4.png")
+        self.assertEqual(
+            app.selected_character_open_path, "image/character3_open.png"
+        )
+        app.renderer.select_character.assert_called_once_with(
+            "image/character4.png", "image/character4_open.png"
+        )
         app._asset_state.assert_not_called()
 
-    def test_microphone_expression_only_applies_to_default_character(self) -> None:
+    def test_microphone_expression_applies_to_selected_character(self) -> None:
         app = object.__new__(OverlayApp)
         app.renderer = Mock()
         app.microphone_manager = Mock()
@@ -462,7 +473,7 @@ class CharacterSelectionTests(unittest.TestCase):
         app.renderer.set_microphone_active.reset_mock()
         app.selected_character_path = "image/character2.png"
         app._sync_microphone_character()
-        app.renderer.set_microphone_active.assert_called_once_with(False)
+        app.renderer.set_microphone_active.assert_called_once_with(True)
 
 
 class RendererTests(unittest.TestCase):
@@ -653,7 +664,11 @@ class RendererTests(unittest.TestCase):
         original_character = renderer.images["character"]
         original_right_hand = renderer.images["right_hand_mouse"]
 
-        self.assertTrue(renderer.select_character("image/character1.png"))
+        self.assertTrue(
+            renderer.select_character(
+                "image/character1.png", "image/character1_open.png"
+            )
+        )
         selected_character = renderer.images["character"]
 
         self.assertIsNot(selected_character.surface, original_character.surface)
@@ -667,23 +682,44 @@ class RendererTests(unittest.TestCase):
         default_character = renderer.images["character"]
 
         renderer.set_microphone_active(True)
-        open_character = renderer.images["character"]
-        self.assertIsNot(open_character, default_character)
+        default_open_character = renderer.images["character"]
+        self.assertIsNot(default_open_character, default_character)
 
-        self.assertTrue(renderer.select_character("image/character3.png"))
-        self.assertIs(renderer.images["character"], open_character)
+        self.assertTrue(
+            renderer.select_character(
+                "image/character3.png", "image/character3_open.png"
+            )
+        )
+        self.assertIs(renderer.images["character"], renderer._open_character)
+        self.assertIsNot(renderer.images["character"], default_open_character)
         selected_character = renderer._selected_character
 
         renderer.set_microphone_active(False)
         self.assertIs(renderer.images["character"], selected_character)
 
-    def test_keypad_priority_and_reload_preserve_character_and_hand_state(self) -> None:
+    def test_missing_open_variant_keeps_selected_character(self) -> None:
+        config = normalise_config({})
+        renderer = LayerRenderer(config, PROJECT_DIR / "config.json")
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            missing_open_path = Path(temporary_directory) / "character9_open.png"
+            renderer.set_microphone_active(True)
+            self.assertTrue(
+                renderer.select_character(
+                    "image/character9.png", str(missing_open_path)
+                )
+            )
+
+        self.assertIs(renderer.images["character"], renderer._selected_character)
+
+    def test_keypad_microphone_and_reload_preserve_character_and_hand_state(self) -> None:
         app = object.__new__(OverlayApp)
         app.config = normalise_config({})
         app.renderer = LayerRenderer(app.config, PROJECT_DIR / "config.json")
         app.microphone_manager = Mock()
         app.microphone_manager.is_active.return_value = True
         app.selected_character_path = None
+        app.selected_character_open_path = None
         app._asset_state = Mock(return_value={})
         renderer = app.renderer
         renderer._right_position = [9.0, 7.0]
@@ -691,12 +727,15 @@ class RendererTests(unittest.TestCase):
         self.assertIs(renderer.images["character"], renderer._open_character)
 
         app._select_character(3)
-        self.assertIs(renderer.images["character"], renderer._selected_character)
-        self.assertIsNot(renderer.images["character"], renderer._open_character)
+        self.assertIs(renderer.images["character"], renderer._open_character)
         self.assertEqual(renderer._right_position, [9.0, 7.0])
         selected_pixels = pygame.image.tobytes(renderer.images["character"].surface, "RGBA")
 
-        renderer.reload_config(app.config, selected_character_path=app.selected_character_path)
+        renderer.reload_config(
+            app.config,
+            selected_character_path=app.selected_character_path,
+            selected_character_open_path=app.selected_character_open_path,
+        )
         app._sync_microphone_character()
         self.assertEqual(
             pygame.image.tobytes(renderer.images["character"].surface, "RGBA"), selected_pixels
@@ -724,6 +763,14 @@ class RendererTests(unittest.TestCase):
             "character7.png",
             "character8.png",
             "character9.png",
+            "character1_open.png",
+            "character2_open.png",
+            "character3_open.png",
+            "character4_open.png",
+            "character5_open.png",
+            "character6_open.png",
+            "character7_open.png",
+            "character8_open.png",
             "desk_keyboard.png",
             "right_hand_mouse.png",
             "left_hand_idle.png",
@@ -784,6 +831,7 @@ class ReloadTests(unittest.TestCase):
                 {"images": {"character": {"path": str(character_path)}}}
             )
             app.selected_character_path = "image/character3.png"
+            app.selected_character_open_path = "image/character3_open.png"
             app.config_mtime = None
             app.last_file_check = 0.0
             app.asset_state = app._asset_state()
@@ -797,9 +845,41 @@ class ReloadTests(unittest.TestCase):
             app._reload_config_if_changed()
 
             app.renderer.reload_config.assert_called_once_with(
-                app.config, selected_character_path="image/character3.png"
+                app.config,
+                selected_character_path="image/character3.png",
+                selected_character_open_path="image/character3_open.png",
             )
             app.tray_manager.update_icon.assert_called_once()
+
+    def test_new_selected_open_image_is_reloaded(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            directory = Path(temporary_directory)
+            character_path = directory / "character9.png"
+            open_path = directory / "character9_open.png"
+            character_path.write_bytes(b"character")
+
+            app = object.__new__(OverlayApp)
+            app.config_path = directory / "config.json"
+            app.config = normalise_config({})
+            app.selected_character_path = str(character_path)
+            app.selected_character_open_path = str(open_path)
+            app.config_mtime = None
+            app.last_file_check = 0.0
+            app.asset_state = app._asset_state()
+            app.renderer = Mock()
+            app.microphone_manager = Mock()
+            app.tray_manager = Mock()
+            app._set_window_icon = Mock()
+            app._sync_tray_state = Mock()
+
+            open_path.write_bytes(b"open character")
+            app._reload_config_if_changed()
+
+            app.renderer.reload_config.assert_called_once_with(
+                app.config,
+                selected_character_path=str(character_path),
+                selected_character_open_path=str(open_path),
+            )
 
     def test_tray_icon_can_be_replaced_while_running(self) -> None:
         icon_path = PROJECT_DIR / "image" / "icon.png"

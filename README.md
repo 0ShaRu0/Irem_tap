@@ -14,7 +14,7 @@ Windows 10/11과 OBS에서 사용하는 5이미지 입력 오버레이입니다.
 - 마우스 버튼에 따른 별도 이미지는 사용하지 않습니다.
 - Windows에서는 Scan Code를 우선 사용하므로 한/영 입력 상태와 관계없이 물리 키를 감지합니다.
 - 숫자패드 `1~9`로 캐릭터를 바꾸고 `0`으로 기본 캐릭터로 돌아갑니다.
-- 기본 캐릭터 상태에서 마이크 입력이 감지되면 열린 입 표정으로 바뀝니다.
+- 마이크 입력이 감지되면 현재 캐릭터의 열린 입 표정으로 바뀝니다.
 
 ## 이미지 파일과 아이콘
 
@@ -23,6 +23,7 @@ image/
 ├─ character.png                 # 시작 및 숫자패드 0 기본 캐릭터
 ├─ character_open.png            # 마이크 입력 중 열린 입 캐릭터
 ├─ character1.png ~ character9.png # 숫자패드 1~9 캐릭터
+├─ character1_open.png ~ character9_open.png # 숫자패드 캐릭터의 열린 입 표정
 ├─ desk_keyboard.png             # 책상, 키보드, 고정 마우스패드
 ├─ right_hand_mouse.png          # 함께 움직이는 오른손과 마우스
 ├─ left_hand_idle.png            # 입력이 없을 때 올린 왼손
@@ -45,6 +46,7 @@ EXE 옆의 `image` 폴더에서 아래 PNG를 같은 이름으로 교체하면 �
 - `character.png`
 - `character_open.png`
 - `character1.png` ~ `character9.png`
+- `character1_open.png` ~ `character9_open.png`
 - `desk_keyboard.png`
 - `right_hand_mouse.png`
 - `left_hand_idle.png`
@@ -101,9 +103,9 @@ python settings.py
 
 F12 설정의 `마이크` 탭에서 마이크 감지 사용 여부, 입력 장치, 감지 임계값, 무음 복귀 시간과 열린 입 PNG 경로를 변경할 수 있습니다.
 
-기본 입력 장치의 RMS 음량이 설정 임계값 이상이면 `character_open.png`로 바뀝니다. 음량이 임계값 아래로 내려간 뒤 설정된 복귀 시간이 지나면 `character.png`로 돌아갑니다. 짧은 무음마다 표정이 깜빡이지 않도록 기본 복귀 시간은 180ms입니다.
+기본 입력 장치의 RMS 음량이 설정 임계값 이상이면 기본 캐릭터는 `character_open.png`, 숫자패드 캐릭터는 같은 번호의 `characterN_open.png`로 바뀝니다. 음량이 임계값 아래로 내려간 뒤 설정된 복귀 시간이 지나면 각 캐릭터의 일반 이미지로 돌아갑니다. 짧은 무음마다 표정이 깜빡이지 않도록 기본 복귀 시간은 180ms입니다.
 
-마이크 표정은 숫자패드 `0`의 기본 캐릭터에서만 작동합니다. `1~9`로 선택한 표정에는 마이크가 적용되지 않으며, 말하는 중 `1~9`를 누르면 선택한 표정으로 즉시 바뀝니다. 다시 `0`을 누르면 현재 마이크 입력 상태가 바로 반영됩니다.
+마이크 표정은 숫자패드 `0~9`로 선택한 모든 캐릭터에 적용됩니다. 대응하는 `_open` PNG가 없으면 마이크 입력 중에도 일반 표정을 유지하며, 파일을 추가하면 실행 중에도 자동으로 반영됩니다. 현재 `character9_open.png`는 선택 사항입니다.
 
 기본 마이크 설정:
 
