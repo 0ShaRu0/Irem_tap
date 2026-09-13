@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import ctypes
+from ctypes import wintypes
 import math
 import os
 from pathlib import Path
 import tempfile
+from typing import Any
 import unittest
 from unittest.mock import Mock, patch
 
@@ -15,7 +18,7 @@ from PIL import Image
 from config_manager import DEFAULT_CONFIG, KEYS, WINDOW_SCALES, normalise_config
 from input_manager import InputManager, InputSnapshot
 from image_geometry import ImageTransform, scaled_image_size
-from main import OverlayApp
+from main import LOCKED_HOVER_ALPHA, LayeredWindowPresenter, OverlayApp
 from microphone_manager import DEFAULT_DEVICE_LABEL
 from renderer import LayerRenderer
 from settings import SettingsEditor
@@ -398,6 +401,55 @@ class WindowTests(unittest.TestCase):
 
         self.assertEqual(app.window_scale, 1.25)
         app._create_display.assert_called_once_with((375, 375))
+
+    def test_locked_window_becomes_translucent_only_while_hovered(self) -> None:
+        app = object.__new__(OverlayApp)
+        app.config = normalise_config({"window_position_locked": True})
+        app._window_rect = Mock(return_value=wintypes.RECT(-100, 20, 200, 320))
+        user32 = Mock()
+
+        def move_cursor(x: int, y: int) -> None:
+            def get_cursor_position(pointer: Any) -> bool:
+                pointer._obj.x = x
+                pointer._obj.y = y
+                return True
+
+            user32.GetCursorPos.side_effect = get_cursor_position
+
+        with patch("main.os.name", "nt"), patch(
+            "main.user32_api", return_value=user32
+        ):
+            move_cursor(-100, 20)
+            self.assertEqual(app._window_alpha(), LOCKED_HOVER_ALPHA)
+
+            move_cursor(200, 320)
+            self.assertEqual(app._window_alpha(), 255)
+
+            app.config["window_position_locked"] = False
+            move_cursor(0, 100)
+            self.assertEqual(app._window_alpha(), 255)
+
+    def test_layered_presenter_uses_requested_window_alpha(self) -> None:
+        presenter = LayeredWindowPresenter()
+        pixels = (ctypes.c_ubyte * 4)()
+        presenter.memory_dc = 1
+        presenter.bits = ctypes.addressof(pixels)
+        presenter.size = (1, 1)
+        frame = pygame.Surface((1, 1), pygame.SRCALPHA, 32)
+        user32 = Mock()
+        user32.GetWindowRect.return_value = True
+        captured_alpha: list[int] = []
+
+        def update_layered_window(*arguments: Any) -> bool:
+            captured_alpha.append(arguments[7]._obj.SourceConstantAlpha)
+            return True
+
+        user32.UpdateLayeredWindow.side_effect = update_layered_window
+        with patch("main.user32_api", return_value=user32):
+            presenter.present(1, frame, LOCKED_HOVER_ALPHA)
+
+        self.assertEqual(captured_alpha, [LOCKED_HOVER_ALPHA])
+        presenter.memory_dc = None
 
 
 class CharacterSelectionTests(unittest.TestCase):

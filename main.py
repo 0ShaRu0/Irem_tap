@@ -28,6 +28,7 @@ from tray_manager import TrayManager
 
 
 WINDOW_TITLE = "iram_tap"
+LOCKED_HOVER_ALPHA = 128
 CHARACTER_SHORTCUT_PATHS = {
     1: "image/character1.png",
     2: "image/character2.png",
@@ -281,7 +282,9 @@ class LayeredWindowPresenter:
             self._raise_windows_error("SelectObject", error_code)
         self.size = size
 
-    def present(self, window_handle: int, frame: pygame.Surface) -> None:
+    def present(
+        self, window_handle: int, frame: pygame.Surface, window_alpha: int = 255
+    ) -> None:
         size = frame.get_size()
         if self.size != size:
             self._create_buffer(size)
@@ -298,7 +301,8 @@ class LayeredWindowPresenter:
         destination = wintypes.POINT(rectangle.left, rectangle.top)
         source = wintypes.POINT(0, 0)
         dimensions = wintypes.SIZE(*size)
-        blend = BlendFunction(0, 0, 255, 1)  # AC_SRC_OVER / AC_SRC_ALPHA
+        window_alpha = max(0, min(255, int(window_alpha)))
+        blend = BlendFunction(0, 0, window_alpha, 1)  # AC_SRC_OVER / AC_SRC_ALPHA
         if not user32.UpdateLayeredWindow(
             window_handle,
             None,
@@ -354,6 +358,7 @@ class OverlayApp:
         self.window_scale = 1.0
         self.last_known_window_position: tuple[int, int] | None = None
         self.pending_position_save_at: float | None = None
+        self.applied_window_alpha: int | None = None
         self.screen: pygame.Surface
         self.layered_presenter = LayeredWindowPresenter() if os.name == "nt" else None
 
@@ -389,6 +394,7 @@ class OverlayApp:
     def _create_display(self, size: tuple[int, int] | None = None) -> None:
         if self.layered_presenter is not None:
             self.layered_presenter.close()
+        self.applied_window_alpha = None
         display_size = size or (
             self.config["window_width"],
             self.config["window_height"],
@@ -429,13 +435,15 @@ class OverlayApp:
             user32.SetWindowLongW(window_handle, gwl_exstyle, style & ~ws_ex_layered)
             style |= ws_ex_layered
             user32.SetWindowLongW(window_handle, gwl_exstyle, style)
-        elif borderless:
+        elif borderless or self.config["window_position_locked"]:
             style |= ws_ex_layered
             user32.SetWindowLongW(window_handle, gwl_exstyle, style)
-            user32.SetLayeredWindowAttributes(window_handle, 0, 255, lwa_alpha)
+            if user32.SetLayeredWindowAttributes(window_handle, 0, 255, lwa_alpha):
+                self.applied_window_alpha = 255
         else:
             style &= ~ws_ex_layered
             user32.SetWindowLongW(window_handle, gwl_exstyle, style)
+            self.applied_window_alpha = None
 
         self._set_topmost(self.config["always_on_top"])
 
@@ -447,6 +455,35 @@ class OverlayApp:
         if not user32_api().GetWindowRect(window_handle, ctypes.byref(rectangle)):
             return None
         return rectangle
+
+    def _window_alpha(self) -> int:
+        if os.name != "nt" or not self.config["window_position_locked"]:
+            return 255
+        rectangle = self._window_rect()
+        if rectangle is None:
+            return 255
+        cursor = wintypes.POINT()
+        if not user32_api().GetCursorPos(ctypes.byref(cursor)):
+            return 255
+        if (
+            rectangle.left <= cursor.x < rectangle.right
+            and rectangle.top <= cursor.y < rectangle.bottom
+        ):
+            return LOCKED_HOVER_ALPHA
+        return 255
+
+    def _apply_uniform_window_alpha(self, window_handle: int, alpha: int) -> None:
+        if self.config["transparent_background"]:
+            return
+        if not (self._is_borderless() or self.config["window_position_locked"]):
+            return
+        alpha = max(0, min(255, int(alpha)))
+        if self.applied_window_alpha == alpha:
+            return
+        if user32_api().SetLayeredWindowAttributes(
+            window_handle, 0, alpha, 0x00000002
+        ):
+            self.applied_window_alpha = alpha
 
     def _move_window(self, x: int, y: int) -> None:
         window_handle = self._window_handle()
@@ -899,6 +936,7 @@ class OverlayApp:
             (screen_height - output_size[1]) // 2,
         )
         window_handle = self._window_handle()
+        window_alpha = self._window_alpha()
         if (
             self.config["transparent_background"]
             and window_handle is not None
@@ -908,9 +946,11 @@ class OverlayApp:
                 (screen_width, screen_height), pygame.SRCALPHA, 32
             )
             frame.blit(output, destination)
-            self.layered_presenter.present(window_handle, frame)
+            self.layered_presenter.present(window_handle, frame, window_alpha)
             return
 
+        if window_handle is not None:
+            self._apply_uniform_window_alpha(window_handle, window_alpha)
         self.screen.fill(self.config["background_color"])
         self.screen.blit(output, destination)
         pygame.display.flip()
