@@ -1,9 +1,9 @@
 {
   "window_width": 300,
   "window_height": 280,
-  "window_x": 2223,
-  "window_y": 199,
-  "window_position_locked": false,
+  "window_x": 2260,
+  "window_y": 206,
+  "window_position_locked": true,
   "fps": 60,
   "always_on_top": true,
   "borderless": true,

@@ -39,6 +39,9 @@ CHARACTER_SHORTCUT_PATHS = {
     8: "image/character8.png",
     9: "image/character9.png",
 }
+CHARACTER_OPEN_SHORTCUT_PATHS = {
+    number: f"image/character{number}_open.png" for number in CHARACTER_SHORTCUT_PATHS
+}
 
 CONTEXT_SETTINGS = 1001
 CONTEXT_HIDE = 1002
@@ -345,6 +348,7 @@ class OverlayApp:
         self.visible = True
         self.settings_process: subprocess.Popen[Any] | None = None
         self.selected_character_path: str | None = None
+        self.selected_character_open_path: str | None = None
         self.last_file_check = 0.0
         self.config_mtime = self._config_mtime()
         self.window_scale = 1.0
@@ -573,14 +577,19 @@ class OverlayApp:
     def _select_character(self, number: int) -> None:
         if number == 0:
             path_value = self.config["images"]["character"]["path"]
+            open_path_value = self.config["microphone_open_image"]
         else:
             path_value = CHARACTER_SHORTCUT_PATHS.get(number)
             if path_value is None:
                 return
-        if not self.renderer.select_character(path_value):
+            open_path_value = CHARACTER_OPEN_SHORTCUT_PATHS[number]
+        if not self.renderer.select_character(path_value, open_path_value):
             print(f"[images] 캐릭터를 변경할 수 없습니다: {path_value}")
             return
         self.selected_character_path = None if number == 0 else path_value
+        self.selected_character_open_path = (
+            None if number == 0 else open_path_value
+        )
         self.asset_state = self._asset_state()
         self._sync_microphone_character()
         label = "기본" if number == 0 else str(number)
@@ -588,10 +597,7 @@ class OverlayApp:
 
     def _sync_microphone_character(self) -> None:
         # The app decides expression priority; the renderer only swaps cached images.
-        microphone_active = (
-            self.selected_character_path is None and self.microphone_manager.is_active()
-        )
-        self.renderer.set_microphone_active(microphone_active)
+        self.renderer.set_microphone_active(self.microphone_manager.is_active())
 
     def _resize_window(self, scale: float) -> None:
         self.window_scale = scale
@@ -729,6 +735,8 @@ class OverlayApp:
         )
         if self.selected_character_path is not None:
             path_values.append(self.selected_character_path)
+        if self.selected_character_open_path is not None:
+            path_values.append(self.selected_character_open_path)
         path_values.append(self.config["microphone_open_image"])
         state: dict[str, tuple[int, int, int] | None] = {}
         for path_value in path_values:
@@ -791,7 +799,9 @@ class OverlayApp:
         if config_reloaded:
             self.microphone_manager.reconfigure(self.config)
         self.renderer.reload_config(
-            self.config, selected_character_path=self.selected_character_path
+            self.config,
+            selected_character_path=self.selected_character_path,
+            selected_character_open_path=self.selected_character_open_path,
         )
         self._sync_microphone_character()
         icon_path = resolve_asset_path(self.config["icon_path"], self.config_path)
