@@ -990,14 +990,15 @@ class OverlayApp:
 
     def run(self) -> int:
         try:
-            self.input_manager.start()
-        except Exception as error:
-            print(f"[input] 전역 입력 리스너를 시작할 수 없습니다: {error}")
-        self.microphone_manager.start()
-        self._sync_tray_state()
-        self.tray_manager.start()
+            try:
+                self.input_manager.start()
+            except Exception as error:
+                message = "전역 입력 리스너를 시작할 수 없어 오버레이를 종료합니다. requirements.txt 설치와 PyInstaller hidden import 구성을 확인하십시오."
+                raise RuntimeError(message) from error
+            self.microphone_manager.start()
+            self._sync_tray_state()
+            self.tray_manager.start()
 
-        try:
             while self.running:
                 delta_time = min(self.clock.tick(self.config["fps"]) / 1000.0, 0.1)
                 self._handle_window_events()

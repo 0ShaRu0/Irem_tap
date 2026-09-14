@@ -381,6 +381,44 @@ class InputTests(unittest.TestCase):
         self.assertFalse(manager.snapshot().pressed_mouse_buttons)
 
 
+class InputStartupTests(unittest.TestCase):
+    def test_run_fails_fast_when_global_input_listener_cannot_start(self) -> None:
+        app = object.__new__(OverlayApp)
+        app.input_manager = Mock()
+        app.input_manager.start.side_effect = ModuleNotFoundError("pynput")
+        app.microphone_manager = Mock()
+        app.tray_manager = Mock()
+        app.layered_presenter = Mock()
+
+        with self.assertRaises(RuntimeError):
+            app.run()
+
+        app.microphone_manager.start.assert_not_called()
+        app.tray_manager.start.assert_not_called()
+        app.tray_manager.stop.assert_called_once_with()
+        app.microphone_manager.stop.assert_called_once_with()
+        app.input_manager.stop.assert_called_once_with()
+        app.layered_presenter.close.assert_called_once_with()
+
+
+class BuildScriptTests(unittest.TestCase):
+    def test_build_installs_requirements_with_py_before_pyinstaller(self) -> None:
+        lines = (PROJECT_DIR / "build.bat").read_text(encoding="utf-8").splitlines()
+        install_index = next(
+            index
+            for index, line in enumerate(lines)
+            if line.strip() == "py -m pip install -r requirements.txt"
+        )
+        pyinstaller_index = next(
+            index
+            for index, line in enumerate(lines)
+            if "py -m PyInstaller" in line
+        )
+
+        self.assertLess(install_index, pyinstaller_index)
+        self.assertEqual(lines[install_index + 1].strip(), "if errorlevel 1 goto :error")
+
+
 class WindowTests(unittest.TestCase):
     def test_transparent_window_is_always_borderless(self) -> None:
         app = object.__new__(OverlayApp)
