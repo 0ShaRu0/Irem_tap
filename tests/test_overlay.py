@@ -22,7 +22,6 @@ from image_geometry import ImageTransform, scaled_image_size
 from main import LOCKED_HOVER_ALPHA, LayeredWindowPresenter, OverlayApp
 from microphone_manager import DEFAULT_DEVICE_LABEL
 from renderer import LayerRenderer
-from session_manager import load_session, save_session
 from settings import SettingsEditor
 from tray_manager import TrayManager
 
@@ -484,7 +483,6 @@ class CharacterSelectionTests(unittest.TestCase):
         app.microphone_manager = Mock()
         app.microphone_manager.expression_level.return_value = 0
         app.selected_character_number = 0
-        app._save_session = Mock()
         app._asset_state = Mock(return_value={"selected": None})
 
         expected_paths = {
@@ -522,7 +520,6 @@ class CharacterSelectionTests(unittest.TestCase):
         app.selected_character_path = "image/keybord_Iram/character3.png"
         app.selected_character_open_path = "image/keybord_Iram/character3_open.png"
         app.selected_character_number = 3
-        app._save_session = Mock()
         app._asset_state = Mock()
 
         app._select_character(4)
@@ -570,7 +567,6 @@ class CharacterSelectionTests(unittest.TestCase):
         app.microphone_manager = Mock()
         app.microphone_manager.expression_level.return_value = 2
         app._asset_state = Mock(return_value={})
-        app._save_session = Mock()
 
         app._handle_action("next_mode")
 
@@ -598,56 +594,10 @@ class CharacterSelectionTests(unittest.TestCase):
         )
 
 
-class SessionTests(unittest.TestCase):
+class ImageModeTests(unittest.TestCase):
     def test_discovers_modes_in_required_order(self) -> None:
         modes = discover_image_modes(PROJECT_DIR / "config.json")
         self.assertEqual([mode.name for mode in modes], ["keybord_Iram", "Iram"])
-
-    def test_omo_session_round_trip_normalises_character_number(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            path = Path(temporary_directory) / "session.omo"
-            save_session(
-                {
-                    "active_mode": "Iram",
-                    "mode_state": {
-                        "keybord_Iram": {"selected_character": 99}
-                    },
-                },
-                path,
-            )
-            loaded = load_session(path)
-
-        self.assertEqual(loaded["active_mode"], "Iram")
-        self.assertEqual(
-            loaded["mode_state"]["keybord_Iram"]["selected_character"], 9
-        )
-
-    def test_invalid_text_session_falls_back_to_defaults(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            path = Path(temporary_directory) / "session.omo"
-            path.write_bytes(b"\xff\xfe")
-
-            loaded = load_session(path)
-
-        self.assertEqual(loaded["active_mode"], "keybord_Iram")
-        self.assertEqual(
-            loaded["mode_state"]["keybord_Iram"]["selected_character"], 0
-        )
-
-    def test_non_finite_character_number_falls_back_to_zero(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            path = Path(temporary_directory) / "session.omo"
-            path.write_text(
-                '{"version": 1, "active_mode": "keybord_Iram", '
-                '"mode_state": {"keybord_Iram": {"selected_character": 1e999}}}',
-                encoding="utf-8",
-            )
-
-            loaded = load_session(path)
-
-        self.assertEqual(
-            loaded["mode_state"]["keybord_Iram"]["selected_character"], 0
-        )
 
 
 class RendererTests(unittest.TestCase):
@@ -917,7 +867,6 @@ class RendererTests(unittest.TestCase):
         app.selected_character_path = None
         app.selected_character_open_path = None
         app.selected_character_number = 0
-        app._save_session = Mock()
         app._asset_state = Mock(return_value={})
         renderer = app.renderer
         renderer._right_position = [9.0, 7.0]

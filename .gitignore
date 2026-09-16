@@ -1,6 +1,4 @@
 __pycache__/
-.omo/
-session.omo
 .build/
 .tests/
 .dist/
