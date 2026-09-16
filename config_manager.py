@@ -18,6 +18,7 @@ LAYER_NAMES = ("character", "desk_keyboard", "left_hand", "right_hand")
 WINDOW_SCALES = (1.25, 1.5)
 KEY_GLOW_REFERENCE_SIZE = (300, 300)
 MOUSE_GLOW_REFERENCE_SIZE = (300, 300)
+KEYBOARD_IMAGE_DIRECTORY = "image/keybord_Iram"
 
 
 def _image(path: str, position: list[int], size: list[int] | None = None) -> dict[str, Any]:
@@ -58,7 +59,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "borderless": True,
     "transparent_background": True,
     "background_color": [0, 0, 0],
-    "icon_path": "image/icon.png",
+    "icon_path": f"{KEYBOARD_IMAGE_DIRECTORY}/icon.png",
     "layer_order": list(LAYER_NAMES),
     "smooth_movement": True,
     "right_hand_speed": 0.32,
@@ -66,8 +67,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "microphone_enabled": True,
     "microphone_device": "",
     "microphone_threshold": 0.02,
+    "microphone_high_threshold": 0.05,
     "microphone_release_delay": 0.18,
-    "microphone_open_image": "image/character_open.png",
+    "microphone_open_image": f"{KEYBOARD_IMAGE_DIRECTORY}/character_open.png",
     "key_glow_color": [255, 220, 72],
     "key_glow_alpha": 210,
     "key_glows": copy.deepcopy(_KEY_GLOWS),
@@ -75,15 +77,40 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "mouse_glow_alpha": 210,
     "mouse_glows": copy.deepcopy(_MOUSE_GLOWS),
     "images": {
-        "character": _image("image/character.png", [0, 0], [300, 300]),
-        "desk_keyboard": _image("image/desk_keyboard.png", [0, 0], [300, 300]),
-        "right_hand_mouse": _image("image/right_hand_mouse.png", [0, 0], [300, 300]),
-        "left_hand_idle": _image("image/left_hand_idle.png", [0, 0], [300, 300]),
+        "character": _image(
+            f"{KEYBOARD_IMAGE_DIRECTORY}/character.png", [0, 0], [300, 300]
+        ),
+        "desk_keyboard": _image(
+            f"{KEYBOARD_IMAGE_DIRECTORY}/desk_keyboard.png", [0, 0], [300, 300]
+        ),
+        "right_hand_mouse": _image(
+            f"{KEYBOARD_IMAGE_DIRECTORY}/right_hand_mouse.png", [0, 0], [300, 300]
+        ),
+        "left_hand_idle": _image(
+            f"{KEYBOARD_IMAGE_DIRECTORY}/left_hand_idle.png", [0, 0], [300, 300]
+        ),
         "left_hand_pressed": _image(
-            "image/left_hand_pressed.png", [0, 0], [300, 300]
+            f"{KEYBOARD_IMAGE_DIRECTORY}/left_hand_pressed.png", [0, 0], [300, 300]
         ),
     },
 }
+
+_LEGACY_KEYBOARD_ASSETS = {
+    f"image/{filename}": f"{KEYBOARD_IMAGE_DIRECTORY}/{filename}"
+    for filename in (
+        "character.png",
+        "character_open.png",
+        "desk_keyboard.png",
+        "right_hand_mouse.png",
+        "left_hand_idle.png",
+        "left_hand_pressed.png",
+        "icon.png",
+    )
+}
+
+
+def _migrate_keyboard_asset_path(path: str) -> str:
+    return _LEGACY_KEYBOARD_ASSETS.get(path.replace("\\", "/"), path)
 
 
 def application_directory() -> Path:
@@ -196,6 +223,8 @@ def normalise_config(config: Any) -> dict[str, Any]:
     )
     for name in ("icon_path", "microphone_device", "microphone_open_image"):
         merged[name] = str(merged[name])
+    for name in ("icon_path", "microphone_open_image"):
+        merged[name] = _migrate_keyboard_asset_path(merged[name])
 
     requested_layers = merged.get("layer_order", [])
     layers: list[str] = []
@@ -210,9 +239,13 @@ def normalise_config(config: Any) -> dict[str, Any]:
     for name, minimum, maximum in (
         ("right_hand_speed", 0.01, 1.0),
         ("microphone_threshold", 0.0001, 1.0),
+        ("microphone_high_threshold", 0.0001, 1.0),
         ("microphone_release_delay", 0.0, 5.0),
     ):
         merged[name] = _number(merged[name], DEFAULT_CONFIG[name], minimum, maximum)
+    merged["microphone_high_threshold"] = max(
+        merged["microphone_threshold"], merged["microphone_high_threshold"]
+    )
     merged["right_hand_range"] = _pair(
         merged.get("right_hand_range"), DEFAULT_CONFIG["right_hand_range"], minimum=0
     )
@@ -223,6 +256,8 @@ def normalise_config(config: Any) -> dict[str, Any]:
         name: _normalise_image(images.get(name), default)
         for name, default in DEFAULT_CONFIG["images"].items()
     }
+    for spec in merged["images"].values():
+        spec["path"] = _migrate_keyboard_asset_path(spec["path"])
     return merged
 
 

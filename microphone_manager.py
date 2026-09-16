@@ -16,6 +16,7 @@ class MicrophoneSettings:
     enabled: bool
     device: str
     threshold: float
+    high_threshold: float
     release_delay: float
 
     @classmethod
@@ -24,6 +25,7 @@ class MicrophoneSettings:
             enabled=bool(config["microphone_enabled"]),
             device=str(config["microphone_device"]),
             threshold=float(config["microphone_threshold"]),
+            high_threshold=float(config["microphone_high_threshold"]),
             release_delay=float(config["microphone_release_delay"]),
         )
 
@@ -56,6 +58,7 @@ class MicrophoneManager:
         self._stream: Any = None
         self._started = False
         self._active = False
+        self._expression_level = 0
         self._last_detected_at: float | None = None
         self._settings = MicrophoneSettings.from_config(config)
 
@@ -147,9 +150,15 @@ class MicrophoneManager:
             settings = self._settings
             if not settings.enabled:
                 self._active = False
+                self._expression_level = 0
                 return
-            if level >= settings.threshold:
+            if level >= settings.high_threshold:
                 self._active = True
+                self._expression_level = 2
+                self._last_detected_at = measured_at
+            elif level >= settings.threshold:
+                self._active = True
+                self._expression_level = 1
                 self._last_detected_at = measured_at
             elif (
                 self._active
@@ -157,10 +166,15 @@ class MicrophoneManager:
                 and measured_at - self._last_detected_at >= settings.release_delay
             ):
                 self._active = False
+                self._expression_level = 0
 
     def is_active(self) -> bool:
         with self._lock:
             return self._settings.enabled and self._active
+
+    def expression_level(self) -> int:
+        with self._lock:
+            return self._expression_level if self._settings.enabled else 0
 
     @staticmethod
     def _dispose_stream(stream: Any, *, stop: bool = True) -> None:
@@ -178,6 +192,7 @@ class MicrophoneManager:
         self._dispose_stream(stream)
         with self._lock:
             self._active = False
+            self._expression_level = 0
             self._last_detected_at = None
 
     def stop(self) -> None:

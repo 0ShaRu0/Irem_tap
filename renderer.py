@@ -35,7 +35,8 @@ class LayerRenderer:
         self._right_position: list[float] | None = None
         self._selected_character: LoadedImage | None = None
         self._open_character: LoadedImage | None = None
-        self._microphone_active = False
+        self._avatar_expressions: tuple[LoadedImage, LoadedImage, LoadedImage] | None = None
+        self._microphone_level = 0
         self._glow_cache: dict[tuple[int, int, tuple[int, int, int], int], pygame.Surface] = {}
         self.reload_config(config)
 
@@ -45,6 +46,7 @@ class LayerRenderer:
         *,
         selected_character_path: str | None = None,
         selected_character_open_path: str | None = None,
+        avatar_expression_paths: tuple[str, str, str] | None = None,
     ) -> None:
         self.config = config
         new_size = (self.config["window_width"], self.config["window_height"])
@@ -65,6 +67,16 @@ class LayerRenderer:
             else selected_character_open_path
         )
         self._open_character = self._load_open_character(open_path)
+        self._avatar_expressions = None
+        if avatar_expression_paths is not None:
+            character_spec = self.config["images"]["character"]
+            self._avatar_expressions = tuple(
+                self._load_image(
+                    f"avatar_{index}",
+                    {**character_spec, "path": path_value},
+                )
+                for index, path_value in enumerate(avatar_expression_paths)
+            )
         self._apply_character_state()
         right = self.images["right_hand_mouse"]
         self._right_position = [right.position[0], right.position[1]]
@@ -79,6 +91,7 @@ class LayerRenderer:
             return False
         self._selected_character = character
         self._open_character = self._load_open_character(open_path_value)
+        self._avatar_expressions = None
         self._apply_character_state()
         return True
 
@@ -89,18 +102,35 @@ class LayerRenderer:
         return self._load_image("character_open", spec)
 
     def set_microphone_active(self, active: bool) -> None:
-        active = bool(active)
-        if self._microphone_active == active:
+        self.set_microphone_level(1 if active else 0)
+
+    def set_microphone_level(self, level: int) -> None:
+        level = max(0, min(2, int(level)))
+        if self._microphone_level == level:
             return
-        self._microphone_active = active
+        self._microphone_level = level
         self._apply_character_state()
 
     def _apply_character_state(self) -> None:
+        if self._avatar_expressions is not None:
+            level = self._microphone_level
+            character = self._avatar_expressions[level]
+            if character.surface is None:
+                character = next(
+                    (
+                        candidate
+                        for candidate in reversed(self._avatar_expressions[:level])
+                        if candidate.surface is not None
+                    ),
+                    self._avatar_expressions[0],
+                )
+            self.images["character"] = character
+            return
         if self._selected_character is None:
             return
         character = self._selected_character
         if (
-            self._microphone_active
+            self._microphone_level > 0
             and self._open_character is not None
             and self._open_character.surface is not None
         ):
@@ -264,6 +294,11 @@ class LayerRenderer:
             self.canvas.fill((0, 0, 0, 0))
         else:
             self.canvas.fill((*self.config["background_color"], 255))
+
+        if self._avatar_expressions is not None:
+            character = self.images["character"]
+            self._blit(self.canvas, character.surface, character.position)
+            return self.canvas
 
         idle = self.images["left_hand_idle"]
         pressed = self.images["left_hand_pressed"]

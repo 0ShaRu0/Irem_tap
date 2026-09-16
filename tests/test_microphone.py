@@ -20,7 +20,11 @@ class MicrophoneTests(unittest.TestCase):
         audio_patch.start()
         self.addCleanup(audio_patch.stop)
         self.config = normalise_config(
-            {"microphone_threshold": 0.1, "microphone_release_delay": 0.2}
+            {
+                "microphone_threshold": 0.1,
+                "microphone_high_threshold": 0.2,
+                "microphone_release_delay": 0.2,
+            }
         )
         self.manager = MicrophoneManager(self.config)
         self.addCleanup(self.manager.stop)
@@ -32,6 +36,15 @@ class MicrophoneTests(unittest.TestCase):
         self.assertTrue(self.manager.is_active())
         self.manager.process_level(0.01, now=1.21)
         self.assertFalse(self.manager.is_active())
+
+    def test_expression_level_tracks_quiet_medium_and_loud_input(self) -> None:
+        self.assertEqual(self.manager.expression_level(), 0)
+        self.manager.process_level(0.11, now=1.0)
+        self.assertEqual(self.manager.expression_level(), 1)
+        self.manager.process_level(0.21, now=1.1)
+        self.assertEqual(self.manager.expression_level(), 2)
+        self.manager.process_level(0.01, now=1.31)
+        self.assertEqual(self.manager.expression_level(), 0)
 
     def test_disabled_microphone_never_activates(self) -> None:
         self.manager.reconfigure({**self.config, "microphone_enabled": False})

@@ -1,8 +1,8 @@
 {
   "window_width": 300,
   "window_height": 280,
-  "window_x": 2260,
-  "window_y": 176,
+  "window_x": 2203,
+  "window_y": 335,
   "window_position_locked": false,
   "fps": 60,
   "always_on_top": true,
@@ -13,7 +13,7 @@
     0,
     0
   ],
-  "icon_path": "image/icon.png",
+  "icon_path": "image/keybord_Iram/icon.png",
   "layer_order": [
     "character",
     "desk_keyboard",
@@ -29,8 +29,9 @@
   "microphone_enabled": true,
   "microphone_device": "마이크(Voicemod) [MME]",
   "microphone_threshold": 0.01,
+  "microphone_high_threshold": 0.05,
   "microphone_release_delay": 0.05,
-  "microphone_open_image": "image/character_open.png",
+  "microphone_open_image": "image/keybord_Iram/character_open.png",
   "key_glow_color": [
     255,
     220,
@@ -159,7 +160,7 @@
   },
   "images": {
     "character": {
-      "path": "image/character.png",
+      "path": "image/keybord_Iram/character.png",
       "position": [
         0.0,
         0.0
@@ -171,7 +172,7 @@
       "keep_aspect": true
     },
     "desk_keyboard": {
-      "path": "image/desk_keyboard.png",
+      "path": "image/keybord_Iram/desk_keyboard.png",
       "position": [
         -0.8,
         15.1
@@ -183,7 +184,7 @@
       "keep_aspect": true
     },
     "right_hand_mouse": {
-      "path": "image/right_hand_mouse.png",
+      "path": "image/keybord_Iram/right_hand_mouse.png",
       "position": [
         0.0,
         0.0
@@ -195,7 +196,7 @@
       "keep_aspect": true
     },
     "left_hand_idle": {
-      "path": "image/left_hand_idle.png",
+      "path": "image/keybord_Iram/left_hand_idle.png",
       "position": [
         -9.6,
         -1.0
@@ -207,7 +208,7 @@
       "keep_aspect": true
     },
     "left_hand_pressed": {
-      "path": "image/left_hand_pressed.png",
+      "path": "image/keybord_Iram/left_hand_pressed.png",
       "position": [
         0.0,
         0.0

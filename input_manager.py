@@ -41,6 +41,10 @@ NUMPAD_SCAN_CODE_TO_CHARACTER = {
     0x48: 8,
     0x49: 9,
 }
+NUMPAD_SCAN_CODE_TO_ACTION = {
+    0x4E: "next_mode",  # Numpad +
+    0x4A: "previous_mode",  # Numpad -
+}
 MOUSE_BUTTONS = frozenset({"left", "right"})
 
 WM_KEYDOWN = 0x0100
@@ -83,7 +87,10 @@ class InputManager:
 
         shortcut_token: tuple[str, int] | None = None
         shortcut_action: str | None = None
-        if not is_extended and scan_code in NUMPAD_SCAN_CODE_TO_CHARACTER:
+        if not is_extended and scan_code in NUMPAD_SCAN_CODE_TO_ACTION:
+            shortcut_token = ("scan", scan_code)
+            shortcut_action = NUMPAD_SCAN_CODE_TO_ACTION[scan_code]
+        elif not is_extended and scan_code in NUMPAD_SCAN_CODE_TO_CHARACTER:
             character = NUMPAD_SCAN_CODE_TO_CHARACTER[scan_code]
             shortcut_token = ("scan", scan_code)
             shortcut_action = f"select_character:{character}"

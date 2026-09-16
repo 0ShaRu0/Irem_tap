@@ -116,6 +116,7 @@ class SettingsEditor:
         self.microphone_enabled = tk.BooleanVar()
         self.microphone_device = tk.StringVar()
         self.microphone_threshold = tk.StringVar()
+        self.microphone_high_threshold = tk.StringVar()
         self.microphone_release_delay = tk.StringVar()
         self.microphone_open_image = tk.StringVar()
         self._sync_microphone_variables()
@@ -357,25 +358,31 @@ class SettingsEditor:
         self._entry_row(
             parent,
             4,
+            "큰 입 임계값 (%)",
+            self.microphone_high_threshold,
+        )
+        self._entry_row(
+            parent,
+            5,
             "무음 복귀 시간 (ms)",
             self.microphone_release_delay,
         )
         ttk.Label(parent, text="열린 입 PNG").grid(
-            row=5, column=0, sticky=tk.W, pady=4
+            row=6, column=0, sticky=tk.W, pady=4
         )
         ttk.Entry(parent, textvariable=self.microphone_open_image).grid(
-            row=5, column=1, sticky=tk.EW, pady=4
+            row=6, column=1, sticky=tk.EW, pady=4
         )
         ttk.Button(parent, text="찾기", command=self._browse_microphone_image).grid(
-            row=5, column=2, padx=(5, 0), pady=4
+            row=6, column=2, padx=(5, 0), pady=4
         )
         ttk.Label(
             parent,
-            text="숫자패드 표정은 같은 번호의 _open PNG를 사용합니다.\n"
-            "파일이 없으면 일반 표정을 유지합니다.",
+            text="Iram 모드는 감지/큰 입 임계값에 따라 3단계로 바뀝니다.\n"
+            "숫자패드 표정은 같은 번호의 _open PNG를 사용합니다.",
             wraplength=335,
             foreground="#555555",
-        ).grid(row=6, column=0, columnspan=3, sticky=tk.W, pady=10)
+        ).grid(row=7, column=0, columnspan=3, sticky=tk.W, pady=10)
         self._refresh_microphone_devices()
 
     def _build_motion_tab(self, parent: ttk.Frame) -> None:
@@ -660,17 +667,23 @@ class SettingsEditor:
     def _collect_microphone_fields(self) -> None:
         try:
             threshold = max(0.01, float(self.microphone_threshold.get())) / 100
+            high_threshold = max(
+                0.01, float(self.microphone_high_threshold.get())
+            ) / 100
             release_delay = max(
                 0.0, float(self.microphone_release_delay.get())
             ) / 1000
         except ValueError as error:
             raise ValueError("마이크 감도와 복귀 시간은 숫자로 입력하세요.") from error
+        if high_threshold < threshold:
+            raise ValueError("큰 입 임계값은 감지 임계값 이상이어야 합니다.")
         selected_device = self.microphone_device.get()
         self.config["microphone_enabled"] = self.microphone_enabled.get()
         self.config["microphone_device"] = (
             "" if selected_device == DEFAULT_DEVICE_LABEL else selected_device
         )
         self.config["microphone_threshold"] = threshold
+        self.config["microphone_high_threshold"] = high_threshold
         self.config["microphone_release_delay"] = release_delay
         self.config["microphone_open_image"] = self.microphone_open_image.get().strip()
 
@@ -741,6 +754,9 @@ class SettingsEditor:
         )
         self.microphone_threshold.set(
             self._format_number(self.config["microphone_threshold"] * 100)
+        )
+        self.microphone_high_threshold.set(
+            self._format_number(self.config["microphone_high_threshold"] * 100)
         )
         self.microphone_release_delay.set(
             self._format_number(self.config["microphone_release_delay"] * 1000)

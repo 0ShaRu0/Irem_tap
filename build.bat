@@ -4,7 +4,7 @@ cd /d "%~dp0"
 
 echo [1/3] Building iram_tap.exe...
 py -m PyInstaller --noconfirm --clean --onefile --windowed ^
-    --name iram_tap --icon=image/icon.png ^
+    --name iram_tap --icon=image/keybord_Iram/icon.png ^
     --hidden-import=pynput.keyboard._win32 ^
     --hidden-import=pynput.mouse._win32 ^
     --hidden-import=pystray._win32 ^

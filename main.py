@@ -22,27 +22,24 @@ from config_manager import (
     update_config,
 )
 from input_manager import InputManager
+from image_modes import (
+    KEYBOARD_MODE_NAME,
+    ImageMode,
+    discover_image_modes,
+)
 from microphone_manager import MicrophoneManager
 from renderer import LayerRenderer
+from session_manager import (
+    READ_ONLY_SESSION_KEY,
+    default_session_path,
+    load_session,
+    save_session,
+)
 from tray_manager import TrayManager
 
 
 WINDOW_TITLE = "iram_tap"
 LOCKED_HOVER_ALPHA = 128
-CHARACTER_SHORTCUT_PATHS = {
-    1: "image/character1.png",
-    2: "image/character2.png",
-    3: "image/character3.png",
-    4: "image/character4.png",
-    5: "image/character5.png",
-    6: "image/character6.png",
-    7: "image/character7.png",
-    8: "image/character8.png",
-    9: "image/character9.png",
-}
-CHARACTER_OPEN_SHORTCUT_PATHS = {
-    number: f"image/character{number}_open.png" for number in CHARACTER_SHORTCUT_PATHS
-}
 
 CONTEXT_SETTINGS = 1001
 CONTEXT_HIDE = 1002
@@ -348,6 +345,32 @@ class OverlayApp:
     def __init__(self, config_path: str | Path) -> None:
         self.config_path = Path(config_path).resolve()
         self.config = load_config(self.config_path)
+        self.image_modes = discover_image_modes(self.config_path)
+        if not self.image_modes:
+            self.image_modes = [
+                ImageMode(KEYBOARD_MODE_NAME, "keyboard", KEYBOARD_MODE_NAME)
+            ]
+        self.session_path = default_session_path()
+        self.session = load_session(self.session_path)
+        self.session_writable = not self.session.pop(READ_ONLY_SESSION_KEY, False)
+        requested_mode = self.session["active_mode"].casefold()
+        requested_mode_index = next(
+            (
+                index
+                for index, mode in enumerate(self.image_modes)
+                if mode.name.casefold() == requested_mode
+            ),
+            None,
+        )
+        self.active_mode_index = requested_mode_index or 0
+        keyboard_state = (
+            self.session["mode_state"].get(KEYBOARD_MODE_NAME, {})
+            if requested_mode_index is not None
+            else {}
+        )
+        self.selected_character_number = int(
+            keyboard_state.get("selected_character", 0)
+        )
         self.running = True
         self.visible = True
         self.settings_process: subprocess.Popen[Any] | None = None
@@ -371,7 +394,9 @@ class OverlayApp:
         self.input_manager = InputManager()
         self.microphone_manager = MicrophoneManager(self.config)
         self.tray_manager = TrayManager(icon_path)
+        self._reload_active_mode()
         self.asset_state = self._asset_state()
+        self._save_session()
 
     @staticmethod
     def _set_window_icon(icon_path: Path) -> None:
@@ -611,15 +636,84 @@ class OverlayApp:
         print(f"[window] 위치 잠금: {state}")
         self._sync_tray_state()
 
-    def _select_character(self, number: int) -> None:
+    def _active_mode(self) -> ImageMode:
+        return self.image_modes[self.active_mode_index]
+
+    def _keyboard_mode(self) -> ImageMode | None:
+        return next(
+            (mode for mode in self.image_modes if mode.kind == "keyboard"),
+            None,
+        )
+
+    def _character_paths(self, number: int) -> tuple[str, str]:
         if number == 0:
-            path_value = self.config["images"]["character"]["path"]
-            open_path_value = self.config["microphone_open_image"]
+            return (
+                self.config["images"]["character"]["path"],
+                self.config["microphone_open_image"],
+            )
+        keyboard_mode = self._keyboard_mode()
+        directory = (
+            keyboard_mode.directory_name
+            if keyboard_mode is not None
+            else KEYBOARD_MODE_NAME
+        )
+        prefix = (Path("image") / directory).as_posix()
+        return (
+            f"{prefix}/character{number}.png",
+            f"{prefix}/character{number}_open.png",
+        )
+
+    def _reload_active_mode(self) -> None:
+        mode = self._active_mode()
+        avatar_paths = mode.expression_paths
+        if mode.kind == "keyboard":
+            path_value, open_path_value = self._character_paths(
+                self.selected_character_number
+            )
+            self.selected_character_path = (
+                None if self.selected_character_number == 0 else path_value
+            )
+            self.selected_character_open_path = (
+                None if self.selected_character_number == 0 else open_path_value
+            )
         else:
-            path_value = CHARACTER_SHORTCUT_PATHS.get(number)
-            if path_value is None:
-                return
-            open_path_value = CHARACTER_OPEN_SHORTCUT_PATHS[number]
+            self.selected_character_path = None
+            self.selected_character_open_path = None
+        self.renderer.reload_config(
+            self.config,
+            selected_character_path=self.selected_character_path,
+            selected_character_open_path=self.selected_character_open_path,
+            avatar_expression_paths=avatar_paths,
+        )
+        self._sync_microphone_character()
+
+    def _save_session(self) -> None:
+        if not self.session_writable:
+            return
+        self.session["active_mode"] = self._active_mode().name
+        self.session["mode_state"].setdefault(KEYBOARD_MODE_NAME, {})[
+            "selected_character"
+        ] = self.selected_character_number
+        try:
+            self.session = save_session(self.session, self.session_path)
+        except OSError as error:
+            print(f"[session] 세션을 저장할 수 없습니다: {error}")
+
+    def _switch_mode(self, offset: int) -> None:
+        if len(self.image_modes) < 2:
+            return
+        self.active_mode_index = (self.active_mode_index + offset) % len(
+            self.image_modes
+        )
+        self._reload_active_mode()
+        self.asset_state = self._asset_state()
+        self._save_session()
+        print(f"[images] 모드 변경: {self._active_mode().name}")
+
+    def _select_character(self, number: int) -> None:
+        if self._active_mode().kind != "keyboard" or number not in range(10):
+            return
+        path_value, open_path_value = self._character_paths(number)
         if not self.renderer.select_character(path_value, open_path_value):
             print(f"[images] 캐릭터를 변경할 수 없습니다: {path_value}")
             return
@@ -627,14 +721,18 @@ class OverlayApp:
         self.selected_character_open_path = (
             None if number == 0 else open_path_value
         )
+        self.selected_character_number = number
         self.asset_state = self._asset_state()
         self._sync_microphone_character()
+        self._save_session()
         label = "기본" if number == 0 else str(number)
         print(f"[images] 캐릭터 변경: {label}")
 
     def _sync_microphone_character(self) -> None:
         # The app decides expression priority; the renderer only swaps cached images.
-        self.renderer.set_microphone_active(self.microphone_manager.is_active())
+        self.renderer.set_microphone_level(
+            self.microphone_manager.expression_level()
+        )
 
     def _resize_window(self, scale: float) -> None:
         self.window_scale = scale
@@ -775,6 +873,9 @@ class OverlayApp:
         if self.selected_character_open_path is not None:
             path_values.append(self.selected_character_open_path)
         path_values.append(self.config["microphone_open_image"])
+        expression_paths = self._active_mode().expression_paths
+        if expression_paths is not None:
+            path_values.extend(expression_paths)
         state: dict[str, tuple[int, int, int] | None] = {}
         for path_value in path_values:
             if not path_value:
@@ -835,12 +936,7 @@ class OverlayApp:
 
         if config_reloaded:
             self.microphone_manager.reconfigure(self.config)
-        self.renderer.reload_config(
-            self.config,
-            selected_character_path=self.selected_character_path,
-            selected_character_open_path=self.selected_character_open_path,
-        )
-        self._sync_microphone_character()
+        self._reload_active_mode()
         icon_path = resolve_asset_path(self.config["icon_path"], self.config_path)
         self._set_window_icon(icon_path)
         self.tray_manager.update_icon(icon_path)
@@ -912,6 +1008,10 @@ class OverlayApp:
             self._toggle_position_lock()
         elif action.startswith("select_character:"):
             self._select_character(int(action.partition(":")[2]))
+        elif action == "next_mode":
+            self._switch_mode(1)
+        elif action == "previous_mode":
+            self._switch_mode(-1)
         elif action.startswith("resize:"):
             self._resize_window(float(action.partition(":")[2]))
         elif action == "quit":

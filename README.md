@@ -1,6 +1,6 @@
 # iram_tap
 
-Windows 10/11과 OBS에서 사용하는 5이미지 입력 오버레이입니다. 전역 키보드와 마우스 이동을 감지하므로 게임이나 다른 창이 활성화된 상태에서도 동작합니다.
+Windows 10/11과 OBS에서 사용하는 캐릭터 입력 오버레이입니다. 전역 키보드와 마우스 이동을 감지하므로 게임이나 다른 창이 활성화된 상태에서도 동작합니다.
 
 ## 동작
 
@@ -12,44 +12,45 @@ Windows 10/11과 OBS에서 사용하는 5이미지 입력 오버레이입니다.
 - 마우스 버튼에 따른 별도 이미지는 사용하지 않습니다.
 - Windows에서는 Scan Code를 우선 사용하므로 한/영 입력 상태와 관계없이 물리 키를 감지합니다.
 - 숫자패드 `1~9`로 캐릭터를 바꾸고 `0`으로 기본 캐릭터로 돌아갑니다.
-- 마이크 입력이 감지되면 현재 캐릭터의 열린 입 표정으로 바뀝니다.
+- 숫자패드 `+`와 `-`로 `keybord_Iram`, `Iram` 모드를 순환합니다.
+- `keybord_Iram`은 마이크 입력 중 열린 입 표정으로 바뀝니다.
+- `Iram`은 마이크 음량에 따라 닫힌 입, 보통 입, 큰 입의 3단계로 바뀝니다.
+- 현재 모드와 키보드 캐릭터 번호는 `session.omo`에 자동 저장됩니다.
 
 ## 이미지 파일과 아이콘
 
 ```text
 image/
-├─ character.png                 # 시작 및 숫자패드 0 기본 캐릭터
-├─ character_open.png            # 마이크 입력 중 열린 입 캐릭터
-├─ character1.png ~ character9.png # 숫자패드 1~9 캐릭터
-├─ character1_open.png ~ character9_open.png # 숫자패드 캐릭터의 열린 입 표정
-├─ desk_keyboard.png             # 책상, 키보드, 고정 마우스패드
-├─ right_hand_mouse.png          # 함께 움직이는 오른손과 마우스
-├─ left_hand_idle.png            # 입력이 없을 때 올린 왼손
-├─ left_hand_pressed.png         # 키 입력 중 내린 왼손
-└─ icon.png                      # 작업 표시줄, 트레이, EXE 아이콘
+├─ keybord_Iram/
+│  ├─ character.png                 # 시작 및 숫자패드 0 기본 캐릭터
+│  ├─ character_open.png            # 마이크 입력 중 열린 입 캐릭터
+│  ├─ character1.png ~ character9.png
+│  ├─ character1_open.png ~ character9_open.png
+│  ├─ desk_keyboard.png
+│  ├─ right_hand_mouse.png
+│  ├─ left_hand_idle.png
+│  ├─ left_hand_pressed.png
+│  └─ icon.png
+└─ Iram/
+   ├─ iram.png                    # 무음
+   ├─ iram1.png                   # 보통 음량
+   └─ iram2.png                   # 큰 음량
 ```
 
 PNG가 없어도 프로그램은 종료되지 않고 해당 레이어만 건너뜁니다. 누락된 경로를 확인하려면 개발 환경에서 `python main.py`로 실행하십시오.
 
 ## 아이콘 변경
 
-`image/icon.png`는 Windows 작업 표시줄과 알림 영역에 공통으로 사용됩니다. 기본 파일은 캐릭터 얼굴로 만든 256×256 투명 PNG입니다.
+`image/keybord_Iram/icon.png`는 Windows 작업 표시줄과 알림 영역에 공통으로 사용됩니다. 기본 파일은 캐릭터 얼굴로 만든 투명 PNG입니다.
 
-아이콘을 바꾸려면 같은 크기의 `image/icon.png`로 교체합니다. 실행 중인 창과 트레이에는 약 0.5초 안에 자동 반영됩니다. EXE 파일 자체의 아이콘까지 변경하려면 `build.bat`을 다시 실행해야 합니다.
+아이콘을 바꾸려면 `image/keybord_Iram/icon.png`를 교체합니다. 실행 중인 창과 트레이에는 약 0.5초 안에 자동 반영됩니다. EXE 파일 자체의 아이콘까지 변경하려면 `build.bat`을 다시 실행해야 합니다.
 
 ## 이미지 교체
 
-EXE 옆의 `image` 폴더에서 아래 PNG를 같은 이름으로 교체하면 실행 중에도 약 0.5초 안에 자동 반영됩니다.
+EXE 옆의 `image/keybord_Iram` 또는 `image/Iram` 폴더에서 PNG를 같은 이름으로 교체하면 실행 중에도 약 0.5초 안에 자동 반영됩니다.
 
-- `character.png`
-- `character_open.png`
-- `character1.png` ~ `character9.png`
-- `character1_open.png` ~ `character9_open.png`
-- `desk_keyboard.png`
-- `right_hand_mouse.png`
-- `left_hand_idle.png`
-- `left_hand_pressed.png`
-- `icon.png`
+- `keybord_Iram`: 캐릭터, 손, 책상·키보드, 아이콘 이미지
+- `Iram`: `iram.png`, `iram1.png`, `iram2.png`
 
 파일 이름과 PNG 캔버스 비율은 유지하는 것을 권장합니다. 파일을 저장하는 순간에는 잠깐 이전 이미지나 빈 레이어가 보일 수 있지만 저장이 끝나면 다음 변경 감지 때 다시 불러옵니다.
 
@@ -84,6 +85,8 @@ python settings.py
 | F10 | 오버레이 표시/숨김 |
 | F11 | Always On Top ON/OFF |
 | F12 | 별도 설정 창 열기 |
+| 숫자패드 + | 다음 이미지 모드 |
+| 숫자패드 - | 이전 이미지 모드 |
 | 숫자패드 1 | `character1.png`로 전환 |
 | 숫자패드 2 | `character2.png`로 전환 |
 | 숫자패드 3 | `character3.png`로 전환 |
@@ -95,13 +98,15 @@ python settings.py
 | 숫자패드 9 | `character9.png`로 전환 |
 | 숫자패드 0 | 기본 `character.png`로 복귀 |
 
-숫자패드 캐릭터 전환은 Num Lock 상태와 관계없이 작동하며 일반 숫자열과 방향키에는 반응하지 않습니다. 선택은 실행 중에만 유지되고 프로그램을 다시 실행하면 기본 `character.png`로 시작합니다.
+숫자패드 단축키는 Num Lock 상태와 관계없이 작동하며 일반 숫자열과 방향키에는 반응하지 않습니다. `+`와 `-`는 마지막 모드에서 반대쪽 끝으로 순환합니다. `0~9` 캐릭터 선택은 `keybord_Iram` 모드에서만 동작합니다.
+
+현재 모드와 `keybord_Iram`의 캐릭터 번호는 실행 파일 옆의 `session.omo`에 즉시 저장됩니다. 다음 실행에서 저장된 상태를 복원하며, 파일이 없거나 손상됐거나 저장된 모드를 찾을 수 없으면 `keybord_Iram` 기본 캐릭터로 시작합니다.
 
 ## 마이크 표정
 
-F12 설정의 `마이크` 탭에서 마이크 감지 사용 여부, 입력 장치, 감지 임계값, 무음 복귀 시간과 열린 입 PNG 경로를 변경할 수 있습니다.
+F12 설정의 `마이크` 탭에서 마이크 감지 사용 여부, 입력 장치, 감지 임계값, 큰 입 임계값, 무음 복귀 시간과 열린 입 PNG 경로를 변경할 수 있습니다.
 
-기본 입력 장치의 RMS 음량이 설정 임계값 이상이면 기본 캐릭터는 `character_open.png`, 숫자패드 캐릭터는 같은 번호의 `characterN_open.png`로 바뀝니다. 음량이 임계값 아래로 내려간 뒤 설정된 복귀 시간이 지나면 각 캐릭터의 일반 이미지로 돌아갑니다. 짧은 무음마다 표정이 깜빡이지 않도록 기본 복귀 시간은 180ms입니다.
+`keybord_Iram`에서는 RMS 음량이 감지 임계값 이상이면 기본 캐릭터는 `character_open.png`, 숫자패드 캐릭터는 같은 번호의 `characterN_open.png`로 바뀝니다. `Iram`에서는 감지 임계값 미만일 때 `iram.png`, 감지 임계값 이상일 때 `iram1.png`, 큰 입 임계값 이상일 때 `iram2.png`를 표시합니다. 음량이 감지 임계값 아래로 내려간 뒤 설정된 복귀 시간이 지나면 닫힌 입으로 돌아갑니다.
 
 마이크 표정은 숫자패드 `0~9`로 선택한 모든 캐릭터에 적용됩니다. 대응하는 `_open` PNG가 없으면 마이크 입력 중에도 일반 표정을 유지하며, 파일을 추가하면 실행 중에도 자동으로 반영됩니다. 현재 `character9_open.png`는 선택 사항입니다.
 
@@ -111,11 +116,12 @@ F12 설정의 `마이크` 탭에서 마이크 감지 사용 여부, 입력 장�
 "microphone_enabled": true,
 "microphone_device": "",
 "microphone_threshold": 0.02,
+"microphone_high_threshold": 0.05,
 "microphone_release_delay": 0.18,
-"microphone_open_image": "image/character_open.png"
+"microphone_open_image": "image/keybord_Iram/character_open.png"
 ```
 
-`microphone_device`가 빈 문자열이면 Windows 기본 입력 장치를 사용합니다. 주변 소음에도 반응하면 `감지 임계값 (%)`을 높이고, 말끝이 자주 끊기면 `무음 복귀 시간 (ms)`을 늘리십시오. 오디오 데이터는 저장하거나 전송하지 않습니다.
+`microphone_device`가 빈 문자열이면 Windows 기본 입력 장치를 사용합니다. 큰 입 임계값은 감지 임계값 이상이어야 합니다. 주변 소음에도 반응하면 감지 임계값을 높이고, 큰 입이 너무 쉽게 나오면 큰 입 임계값을 높이십시오. 오디오 데이터는 저장하거나 전송하지 않습니다.
 
 ## 창 조작
 
@@ -134,7 +140,7 @@ F12 설정의 `마이크` 탭에서 마이크 감지 사용 여부, 입력 장�
 
 ## 이미지 설정
 
-F12 설정 화면의 `이미지` 탭에서 5개 PNG의 경로, 위치, 크기를 조절할 수 있습니다. 오른손과 왼손 이미지를 선택하면 미리보기의 파란 점선 영역을 직접 드래그해 위치를 옮길 수 있으며, X/Y 입력값도 바로 갱신됩니다.
+F12 설정 화면의 `이미지` 탭에서 `keybord_Iram` 모드의 5개 PNG 경로, 위치, 크기를 조절할 수 있습니다. 오른손과 왼손 이미지를 선택하면 미리보기의 파란 점선 영역을 직접 드래그해 위치를 옮길 수 있으며, X/Y 입력값도 바로 갱신됩니다.
 
 기본 논리 캔버스는 원본 그림에 맞춘 `300×300` 정사각형입니다. 크기 메뉴의 125%는 `375×375`, 150%는 `450×450`으로 표시됩니다.
 
@@ -223,6 +229,7 @@ OBS 설정:
 | `microphone_enabled` | 마이크 표정 사용 여부 |
 | `microphone_device` | 입력 장치 이름, 빈 값은 시스템 기본 장치 |
 | `microphone_threshold` | 마이크 RMS 감지 임계값 |
+| `microphone_high_threshold` | `Iram`의 큰 입 전환 RMS 임계값 |
 | `microphone_release_delay` | 무음 후 기본 표정 복귀 대기 시간(초) |
 | `microphone_open_image` | 열린 입 캐릭터 PNG 경로 |
 | `key_glow_color` | 키 발광 RGB 색상 |
@@ -233,16 +240,18 @@ OBS 설정:
 | `mouse_glows` | 좌·우 클릭 발광 중심과 크기 |
 | `images` | 5개 PNG 경로, 위치, 크기 |
 
-설정과 `image` 폴더의 PNG는 실행 중 0.5초 간격으로 변경 여부를 확인하고 자동으로 다시 불러옵니다.
+설정과 현재 모드에서 사용하는 PNG는 실행 중 0.5초 간격으로 변경 여부를 확인하고 자동으로 다시 불러옵니다.
 
 ## 코드 구성 및 검증
 
 - `config_manager.py`: 기본 설정, 값 검증, 설정 파일 저장
+- `image_modes.py`: 이미지 폴더 모드 순서와 모드별 파일 정의
 - `image_geometry.py`: 이미지 크기 계산 및 발광 좌표 변환 (미리보기·렌더러 공용)
 - `settings.py`: F12 설정 UI, 발광 편집·드래그
-- `renderer.py`: 레이어 합성과 캐시된 캐릭터 이미지 전환
-- `main.py`: 숫자패드/마이크 표정 우선순위, 설정·이미지 변경 반영
+- `renderer.py`: 키보드 레이어 합성과 3단계 캐릭터 이미지 전환
+- `main.py`: 숫자패드 모드 전환, 마이크 표정 우선순위, 변경 반영
 - `microphone_manager.py`: 마이크 스트림 수명 관리와 음량 감지
+- `session_manager.py`: `session.omo` 검증과 원자적 저장
 
 마이크 장치나 사용 여부를 바꾸면 스트림을 재설정합니다. 감도·복귀 시간은 다음 오디오 처리부터 적용하며, 창 위치·색상 변경은 마이크 스트림과 감지 상태를 유지합니다.
 
@@ -267,7 +276,7 @@ dist/
 └─ image/
 ```
 
-배포할 때 위 세 항목을 함께 이동하십시오.
+배포할 때 위 세 항목을 함께 이동하십시오. `session.omo`는 첫 실행 시 `iram_tap.exe` 옆에 자동 생성됩니다.
 
 기존 `dist/config.json`이 있으면 빌드 시 사용자 설정을 보존합니다. 기본 설정으로 되돌리려면 해당 파일을 삭제한 뒤 다시 빌드하십시오.
 

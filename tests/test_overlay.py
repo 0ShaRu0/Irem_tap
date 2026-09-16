@@ -17,10 +17,12 @@ from PIL import Image
 
 from config_manager import DEFAULT_CONFIG, KEYS, WINDOW_SCALES, normalise_config
 from input_manager import InputManager, InputSnapshot
+from image_modes import ImageMode, discover_image_modes
 from image_geometry import ImageTransform, scaled_image_size
 from main import LOCKED_HOVER_ALPHA, LayeredWindowPresenter, OverlayApp
 from microphone_manager import DEFAULT_DEVICE_LABEL
 from renderer import LayerRenderer
+from session_manager import load_session, save_session
 from settings import SettingsEditor
 from tray_manager import TrayManager
 
@@ -60,7 +62,7 @@ class ConfigTests(unittest.TestCase):
         config = normalise_config({})
 
         self.assertEqual((config["window_width"], config["window_height"]), (300, 300))
-        self.assertEqual(config["icon_path"], "image/icon.png")
+        self.assertEqual(config["icon_path"], "image/keybord_Iram/icon.png")
         self.assertEqual(config["images"]["character"]["size"], [300, 300])
         self.assertEqual(config["images"]["desk_keyboard"]["size"], [300, 300])
         self.assertEqual(config["images"]["right_hand_mouse"]["position"], [0, 0])
@@ -74,9 +76,11 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config["microphone_enabled"])
         self.assertEqual(config["microphone_device"], "")
         self.assertEqual(config["microphone_threshold"], 0.02)
+        self.assertEqual(config["microphone_high_threshold"], 0.05)
         self.assertEqual(config["microphone_release_delay"], 0.18)
         self.assertEqual(
-            config["microphone_open_image"], "image/character_open.png"
+            config["microphone_open_image"],
+            "image/keybord_Iram/character_open.png",
         )
         self.assertEqual(tuple(config["images"]), tuple(DEFAULT_CONFIG["images"]))
 
@@ -261,6 +265,8 @@ class SettingsEditorTests(unittest.TestCase):
         editor.microphone_device.get.return_value = DEFAULT_DEVICE_LABEL
         editor.microphone_threshold = Mock()
         editor.microphone_threshold.get.return_value = "3.5"
+        editor.microphone_high_threshold = Mock()
+        editor.microphone_high_threshold.get.return_value = "8"
         editor.microphone_release_delay = Mock()
         editor.microphone_release_delay.get.return_value = "240"
         editor.microphone_open_image = Mock()
@@ -271,6 +277,7 @@ class SettingsEditorTests(unittest.TestCase):
         self.assertTrue(editor.config["microphone_enabled"])
         self.assertEqual(editor.config["microphone_device"], "")
         self.assertEqual(editor.config["microphone_threshold"], 0.035)
+        self.assertEqual(editor.config["microphone_high_threshold"], 0.08)
         self.assertEqual(editor.config["microphone_release_delay"], 0.24)
         self.assertEqual(
             editor.config["microphone_open_image"], "image/custom-open.png"
@@ -360,6 +367,18 @@ class InputTests(unittest.TestCase):
         manager.process_native_key(0x23, 0x4F, True, is_extended=True)
 
         self.assertFalse(manager.consume_actions())
+
+    def test_numpad_plus_and_minus_cycle_modes_once_per_press(self) -> None:
+        manager = InputManager()
+
+        for vk_code, scan_code in ((0x6B, 0x4E), (0x6D, 0x4A)):
+            manager.process_native_key(vk_code, scan_code, True)
+            manager.process_native_key(vk_code, scan_code, True)
+            manager.process_native_key(vk_code, scan_code, False)
+
+        self.assertEqual(
+            manager.consume_actions(), ["next_mode", "previous_mode"]
+        )
 
     def test_tracks_latest_mouse_position(self) -> None:
         manager = InputManager()
@@ -456,24 +475,24 @@ class CharacterSelectionTests(unittest.TestCase):
     def test_character_actions_switch_variants_and_return_to_default(self) -> None:
         app = object.__new__(OverlayApp)
         app.config = normalise_config({})
+        app.image_modes = [ImageMode("keybord_Iram", "keyboard", "keybord_Iram")]
+        app.active_mode_index = 0
         app.renderer = Mock()
         app.renderer.select_character.return_value = True
         app.selected_character_path = None
         app.selected_character_open_path = None
         app.microphone_manager = Mock()
-        app.microphone_manager.is_active.return_value = False
+        app.microphone_manager.expression_level.return_value = 0
+        app.selected_character_number = 0
+        app._save_session = Mock()
         app._asset_state = Mock(return_value={"selected": None})
 
         expected_paths = {
-            1: ("image/character1.png", "image/character1_open.png"),
-            2: ("image/character2.png", "image/character2_open.png"),
-            3: ("image/character3.png", "image/character3_open.png"),
-            4: ("image/character4.png", "image/character4_open.png"),
-            5: ("image/character5.png", "image/character5_open.png"),
-            6: ("image/character6.png", "image/character6_open.png"),
-            7: ("image/character7.png", "image/character7_open.png"),
-            8: ("image/character8.png", "image/character8_open.png"),
-            9: ("image/character9.png", "image/character9_open.png"),
+            number: (
+                f"image/keybord_Iram/character{number}.png",
+                f"image/keybord_Iram/character{number}_open.png",
+            )
+            for number in range(1, 10)
         }
         for number, (path, open_path) in expected_paths.items():
             app.renderer.select_character.reset_mock()
@@ -487,7 +506,8 @@ class CharacterSelectionTests(unittest.TestCase):
         app._handle_action("select_character:0")
 
         app.renderer.select_character.assert_called_once_with(
-            "image/character.png", "image/character_open.png"
+            "image/keybord_Iram/character.png",
+            "image/keybord_Iram/character_open.png",
         )
         self.assertIsNone(app.selected_character_path)
         self.assertIsNone(app.selected_character_open_path)
@@ -495,20 +515,28 @@ class CharacterSelectionTests(unittest.TestCase):
     def test_failed_character_switch_keeps_current_selection(self) -> None:
         app = object.__new__(OverlayApp)
         app.config = normalise_config({})
+        app.image_modes = [ImageMode("keybord_Iram", "keyboard", "keybord_Iram")]
+        app.active_mode_index = 0
         app.renderer = Mock()
         app.renderer.select_character.return_value = False
-        app.selected_character_path = "image/character3.png"
-        app.selected_character_open_path = "image/character3_open.png"
+        app.selected_character_path = "image/keybord_Iram/character3.png"
+        app.selected_character_open_path = "image/keybord_Iram/character3_open.png"
+        app.selected_character_number = 3
+        app._save_session = Mock()
         app._asset_state = Mock()
 
         app._select_character(4)
 
-        self.assertEqual(app.selected_character_path, "image/character3.png")
         self.assertEqual(
-            app.selected_character_open_path, "image/character3_open.png"
+            app.selected_character_path, "image/keybord_Iram/character3.png"
+        )
+        self.assertEqual(
+            app.selected_character_open_path,
+            "image/keybord_Iram/character3_open.png",
         )
         app.renderer.select_character.assert_called_once_with(
-            "image/character4.png", "image/character4_open.png"
+            "image/keybord_Iram/character4.png",
+            "image/keybord_Iram/character4_open.png",
         )
         app._asset_state.assert_not_called()
 
@@ -516,16 +544,110 @@ class CharacterSelectionTests(unittest.TestCase):
         app = object.__new__(OverlayApp)
         app.renderer = Mock()
         app.microphone_manager = Mock()
-        app.microphone_manager.is_active.return_value = True
+        app.microphone_manager.expression_level.return_value = 2
         app.selected_character_path = None
 
         app._sync_microphone_character()
-        app.renderer.set_microphone_active.assert_called_once_with(True)
+        app.renderer.set_microphone_level.assert_called_once_with(2)
 
-        app.renderer.set_microphone_active.reset_mock()
-        app.selected_character_path = "image/character2.png"
+        app.renderer.set_microphone_level.reset_mock()
+        app.selected_character_path = "image/keybord_Iram/character2.png"
         app._sync_microphone_character()
-        app.renderer.set_microphone_active.assert_called_once_with(True)
+        app.renderer.set_microphone_level.assert_called_once_with(2)
+
+    def test_mode_actions_wrap_and_restore_keyboard_character(self) -> None:
+        app = object.__new__(OverlayApp)
+        app.config = normalise_config({})
+        app.image_modes = [
+            ImageMode("keybord_Iram", "keyboard", "keybord_Iram"),
+            ImageMode("Iram", "avatar", "Iram"),
+        ]
+        app.active_mode_index = 0
+        app.selected_character_number = 3
+        app.selected_character_path = None
+        app.selected_character_open_path = None
+        app.renderer = Mock()
+        app.microphone_manager = Mock()
+        app.microphone_manager.expression_level.return_value = 2
+        app._asset_state = Mock(return_value={})
+        app._save_session = Mock()
+
+        app._handle_action("next_mode")
+
+        self.assertEqual(app._active_mode().name, "Iram")
+        app.renderer.reload_config.assert_called_with(
+            app.config,
+            selected_character_path=None,
+            selected_character_open_path=None,
+            avatar_expression_paths=(
+                "image/Iram/iram.png",
+                "image/Iram/iram1.png",
+                "image/Iram/iram2.png",
+            ),
+        )
+
+        app.renderer.reload_config.reset_mock()
+        app._handle_action("next_mode")
+
+        self.assertEqual(app._active_mode().name, "keybord_Iram")
+        app.renderer.reload_config.assert_called_with(
+            app.config,
+            selected_character_path="image/keybord_Iram/character3.png",
+            selected_character_open_path="image/keybord_Iram/character3_open.png",
+            avatar_expression_paths=None,
+        )
+
+
+class SessionTests(unittest.TestCase):
+    def test_discovers_modes_in_required_order(self) -> None:
+        modes = discover_image_modes(PROJECT_DIR / "config.json")
+        self.assertEqual([mode.name for mode in modes], ["keybord_Iram", "Iram"])
+
+    def test_omo_session_round_trip_normalises_character_number(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "session.omo"
+            save_session(
+                {
+                    "active_mode": "Iram",
+                    "mode_state": {
+                        "keybord_Iram": {"selected_character": 99}
+                    },
+                },
+                path,
+            )
+            loaded = load_session(path)
+
+        self.assertEqual(loaded["active_mode"], "Iram")
+        self.assertEqual(
+            loaded["mode_state"]["keybord_Iram"]["selected_character"], 9
+        )
+
+    def test_invalid_text_session_falls_back_to_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "session.omo"
+            path.write_bytes(b"\xff\xfe")
+
+            loaded = load_session(path)
+
+        self.assertEqual(loaded["active_mode"], "keybord_Iram")
+        self.assertEqual(
+            loaded["mode_state"]["keybord_Iram"]["selected_character"], 0
+        )
+
+    def test_non_finite_character_number_falls_back_to_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "session.omo"
+            path.write_text(
+                '{"version": 1, "active_mode": "keybord_Iram", '
+                '"mode_state": {"keybord_Iram": {"selected_character": 1e999}}}',
+                encoding="utf-8",
+            )
+
+            loaded = load_session(path)
+
+        self.assertEqual(
+            loaded["mode_state"]["keybord_Iram"]["selected_character"], 0
+        )
 
 
 class RendererTests(unittest.TestCase):
@@ -550,6 +672,24 @@ class RendererTests(unittest.TestCase):
         self.assertEqual(
             frame.premul_alpha().get_at((299, 0)), pygame.Color(0, 0, 0, 0)
         )
+
+    def test_avatar_mode_uses_three_microphone_expression_levels(self) -> None:
+        config = normalise_config({})
+        renderer = LayerRenderer(config, PROJECT_DIR / "config.json")
+        renderer.reload_config(
+            config,
+            avatar_expression_paths=(
+                "image/Iram/iram.png",
+                "image/Iram/iram1.png",
+                "image/Iram/iram2.png",
+            ),
+        )
+
+        expressions = renderer._avatar_expressions
+        assert expressions is not None
+        for level in range(3):
+            renderer.set_microphone_level(level)
+            self.assertIs(renderer.images["character"], expressions[level])
 
     def test_opaque_background_uses_configured_color(self) -> None:
         config = normalise_config(
@@ -718,7 +858,8 @@ class RendererTests(unittest.TestCase):
 
         self.assertTrue(
             renderer.select_character(
-                "image/character1.png", "image/character1_open.png"
+                "image/keybord_Iram/character1.png",
+                "image/keybord_Iram/character1_open.png",
             )
         )
         selected_character = renderer.images["character"]
@@ -739,7 +880,8 @@ class RendererTests(unittest.TestCase):
 
         self.assertTrue(
             renderer.select_character(
-                "image/character3.png", "image/character3_open.png"
+                "image/keybord_Iram/character3.png",
+                "image/keybord_Iram/character3_open.png",
             )
         )
         self.assertIs(renderer.images["character"], renderer._open_character)
@@ -758,7 +900,7 @@ class RendererTests(unittest.TestCase):
             renderer.set_microphone_active(True)
             self.assertTrue(
                 renderer.select_character(
-                    "image/character9.png", str(missing_open_path)
+                    "image/keybord_Iram/character9.png", str(missing_open_path)
                 )
             )
 
@@ -767,11 +909,15 @@ class RendererTests(unittest.TestCase):
     def test_keypad_microphone_and_reload_preserve_character_and_hand_state(self) -> None:
         app = object.__new__(OverlayApp)
         app.config = normalise_config({})
+        app.image_modes = [ImageMode("keybord_Iram", "keyboard", "keybord_Iram")]
+        app.active_mode_index = 0
         app.renderer = LayerRenderer(app.config, PROJECT_DIR / "config.json")
         app.microphone_manager = Mock()
-        app.microphone_manager.is_active.return_value = True
+        app.microphone_manager.expression_level.return_value = 1
         app.selected_character_path = None
         app.selected_character_open_path = None
+        app.selected_character_number = 0
+        app._save_session = Mock()
         app._asset_state = Mock(return_value={})
         renderer = app.renderer
         renderer._right_position = [9.0, 7.0]
@@ -795,10 +941,10 @@ class RendererTests(unittest.TestCase):
         app._select_character(0)
         self.assertIs(renderer.images["character"], renderer._open_character)
         with patch.object(renderer, "_load_image", side_effect=AssertionError("unexpected disk read")):
-            app.microphone_manager.is_active.return_value = False
+            app.microphone_manager.expression_level.return_value = 0
             app._sync_microphone_character()
             self.assertIs(renderer.images["character"], renderer._selected_character)
-            app.microphone_manager.is_active.return_value = True
+            app.microphone_manager.expression_level.return_value = 1
             app._sync_microphone_character()
             self.assertIs(renderer.images["character"], renderer._open_character)
 
@@ -829,11 +975,16 @@ class RendererTests(unittest.TestCase):
             "left_hand_pressed.png",
             "icon.png",
         }
-        available = {path.name for path in (PROJECT_DIR / "image").glob("*.png")}
+        available = {
+            path.name
+            for path in (PROJECT_DIR / "image" / "keybord_Iram").glob("*.png")
+        }
         self.assertTrue(required.issubset(available))
 
     def test_icon_is_a_valid_png(self) -> None:
-        with Image.open(PROJECT_DIR / "image" / "icon.png") as opened:
+        with Image.open(
+            PROJECT_DIR / "image" / "keybord_Iram" / "icon.png"
+        ) as opened:
             self.assertEqual(opened.format, "PNG")
             icon = opened.convert("RGBA")
         self.assertGreater(icon.width, 0)
@@ -882,12 +1033,19 @@ class ReloadTests(unittest.TestCase):
             app.config = normalise_config(
                 {"images": {"character": {"path": str(character_path)}}}
             )
-            app.selected_character_path = "image/character3.png"
-            app.selected_character_open_path = "image/character3_open.png"
+            app.image_modes = [
+                ImageMode("keybord_Iram", "keyboard", "keybord_Iram")
+            ]
+            app.active_mode_index = 0
+            app.selected_character_path = "image/keybord_Iram/character3.png"
+            app.selected_character_open_path = (
+                "image/keybord_Iram/character3_open.png"
+            )
             app.config_mtime = None
             app.last_file_check = 0.0
             app.asset_state = app._asset_state()
             app.renderer = Mock()
+            app._reload_active_mode = Mock()
             app.microphone_manager = Mock()
             app.tray_manager = Mock()
             app._set_window_icon = Mock()
@@ -896,11 +1054,7 @@ class ReloadTests(unittest.TestCase):
             character_path.write_bytes(b"second version")
             app._reload_config_if_changed()
 
-            app.renderer.reload_config.assert_called_once_with(
-                app.config,
-                selected_character_path="image/character3.png",
-                selected_character_open_path="image/character3_open.png",
-            )
+            app._reload_active_mode.assert_called_once_with()
             app.tray_manager.update_icon.assert_called_once()
 
     def test_new_selected_open_image_is_reloaded(self) -> None:
@@ -913,12 +1067,17 @@ class ReloadTests(unittest.TestCase):
             app = object.__new__(OverlayApp)
             app.config_path = directory / "config.json"
             app.config = normalise_config({})
+            app.image_modes = [
+                ImageMode("keybord_Iram", "keyboard", "keybord_Iram")
+            ]
+            app.active_mode_index = 0
             app.selected_character_path = str(character_path)
             app.selected_character_open_path = str(open_path)
             app.config_mtime = None
             app.last_file_check = 0.0
             app.asset_state = app._asset_state()
             app.renderer = Mock()
+            app._reload_active_mode = Mock()
             app.microphone_manager = Mock()
             app.tray_manager = Mock()
             app._set_window_icon = Mock()
@@ -927,14 +1086,10 @@ class ReloadTests(unittest.TestCase):
             open_path.write_bytes(b"open character")
             app._reload_config_if_changed()
 
-            app.renderer.reload_config.assert_called_once_with(
-                app.config,
-                selected_character_path=str(character_path),
-                selected_character_open_path=str(open_path),
-            )
+            app._reload_active_mode.assert_called_once_with()
 
     def test_tray_icon_can_be_replaced_while_running(self) -> None:
-        icon_path = PROJECT_DIR / "image" / "icon.png"
+        icon_path = PROJECT_DIR / "image" / "keybord_Iram" / "icon.png"
         tray = TrayManager(icon_path)
         tray._icon = Mock()
 
