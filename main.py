@@ -169,6 +169,8 @@ def user32_api() -> Any:
     user32.DestroyMenu.restype = wintypes.BOOL
     user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
     user32.SetForegroundWindow.restype = wintypes.BOOL
+    user32.GetForegroundWindow.argtypes = ()
+    user32.GetForegroundWindow.restype = wintypes.HWND
     user32.PostMessageW.argtypes = (
         wintypes.HWND,
         wintypes.UINT,
@@ -357,6 +359,11 @@ class OverlayApp:
         self.last_known_window_position: tuple[int, int] | None = None
         self.pending_position_save_at: float | None = None
         self.applied_window_alpha: int | None = None
+        self.text_mode_active = False
+        self.text_editing = False
+        self.text_value = ""
+        self.text_composition = ""
+        self.previous_foreground_window: int | None = None
         self.screen: pygame.Surface
         self.layered_presenter = LayeredWindowPresenter() if os.name == "nt" else None
 
@@ -423,7 +430,11 @@ class OverlayApp:
         style = user32.GetWindowLongW(window_handle, gwl_exstyle)
         borderless = self._is_borderless()
 
-        if borderless and self.config["window_position_locked"]:
+        if (
+            borderless
+            and self.config["window_position_locked"]
+            and not getattr(self, "text_editing", False)
+        ):
             style |= ws_ex_noactivate | ws_ex_transparent
         else:
             style &= ~(ws_ex_noactivate | ws_ex_transparent)
@@ -456,7 +467,11 @@ class OverlayApp:
         return rectangle
 
     def _window_alpha(self) -> int:
-        if os.name != "nt" or not self.config["window_position_locked"]:
+        if (
+            os.name != "nt"
+            or getattr(self, "text_editing", False)
+            or not self.config["window_position_locked"]
+        ):
             return 255
         rectangle = self._window_rect()
         if rectangle is None:
@@ -582,6 +597,8 @@ class OverlayApp:
         )
 
     def _toggle_visibility(self) -> None:
+        if self.visible and self.text_mode_active:
+            self._stop_text_mode()
         self.visible = not self.visible
         window_handle = self._window_handle()
         if window_handle:
@@ -609,6 +626,85 @@ class OverlayApp:
         state = "ON" if self.config["window_position_locked"] else "OFF"
         print(f"[window] 위치 잠금: {state}")
         self._sync_tray_state()
+
+    def _focus_overlay_for_text_input(self) -> None:
+        window_handle = self._window_handle()
+        if not window_handle:
+            return
+        user32 = user32_api()
+        foreground_window = user32.GetForegroundWindow()
+        if foreground_window and foreground_window != window_handle:
+            self.previous_foreground_window = int(foreground_window)
+        user32.ShowWindow(window_handle, 5)  # SW_SHOW
+        user32.SetForegroundWindow(window_handle)
+
+    def _restore_previous_focus(self) -> None:
+        previous_window = self.previous_foreground_window
+        self.previous_foreground_window = None
+        if previous_window and os.name == "nt":
+            user32_api().SetForegroundWindow(wintypes.HWND(previous_window))
+
+    def _start_text_mode(self) -> None:
+        self.text_mode_active = True
+        self.text_editing = True
+        self.text_value = ""
+        self.text_composition = ""
+        if not self.visible:
+            self.visible = True
+            self._sync_tray_state()
+        self._apply_windows_options()
+        self._focus_overlay_for_text_input()
+        pygame.key.start_text_input()
+        pygame.key.set_text_input_rect(
+            pygame.Rect(12, 8, max(1, self.screen.get_width() - 24), 96)
+        )
+
+    def _commit_text_input(self) -> None:
+        if not self.text_editing:
+            return
+        if self.text_composition:
+            self.text_value += self.text_composition
+        self.text_value = self.text_value.strip()
+        self.text_composition = ""
+        self.text_editing = False
+        pygame.key.stop_text_input()
+        self._apply_windows_options()
+        self._restore_previous_focus()
+
+    def _stop_text_mode(self) -> None:
+        was_editing = self.text_editing
+        self.text_mode_active = False
+        self.text_editing = False
+        self.text_value = ""
+        self.text_composition = ""
+        pygame.key.stop_text_input()
+        self._apply_windows_options()
+        if was_editing:
+            self._restore_previous_focus()
+
+    def _toggle_text_mode(self) -> None:
+        if self.text_mode_active:
+            self._stop_text_mode()
+        else:
+            self._start_text_mode()
+
+    def _handle_text_input_event(self, event: pygame.event.Event) -> bool:
+        if not self.text_editing:
+            return False
+        if event.type == pygame.TEXTINPUT:
+            self.text_value += event.text
+            self.text_composition = ""
+            return True
+        if event.type == pygame.TEXTEDITING:
+            self.text_composition = event.text
+            return True
+        if event.type != pygame.KEYDOWN:
+            return False
+        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            self._commit_text_input()
+        elif event.key == pygame.K_BACKSPACE and not self.text_composition:
+            self.text_value = self.text_value[:-1]
+        return True
 
     def _active_mode(self) -> ImageMode:
         return self.image_modes[self.active_mode_index]
@@ -912,6 +1008,8 @@ class OverlayApp:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+            elif self._handle_text_input_event(event):
+                continue
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self._start_window_drag()
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
@@ -966,6 +1064,8 @@ class OverlayApp:
             self._launch_settings()
         elif action == "toggle_position_lock":
             self._toggle_position_lock()
+        elif action == "toggle_text_mode":
+            self._toggle_text_mode()
         elif action.startswith("select_character:"):
             self._select_character(int(action.partition(":")[2]))
         elif action == "next_mode":
@@ -1071,9 +1171,17 @@ class OverlayApp:
                         snapshot,
                         delta_time,
                         self._cursor_ratio(snapshot.mouse_position),
+                        text_overlay=(
+                            self.text_value + self.text_composition
+                            if self.text_mode_active
+                            else None
+                        ),
+                        text_editing=self.text_editing,
                     )
                     self._present(canvas)
         finally:
+            if self.text_editing:
+                pygame.key.stop_text_input()
             self.tray_manager.stop()
             self.microphone_manager.stop()
             self.input_manager.stop()

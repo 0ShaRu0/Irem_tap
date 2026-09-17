@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+import json
 import math
 import os
 from pathlib import Path
@@ -15,7 +16,16 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import pygame
 from PIL import Image
 
-from config_manager import DEFAULT_CONFIG, KEYS, WINDOW_SCALES, normalise_config
+import config_manager
+from config_manager import (
+    DEFAULT_CONFIG,
+    KEYS,
+    WINDOW_SCALES,
+    default_config_path,
+    load_config,
+    normalise_config,
+    resolve_asset_path,
+)
 from input_manager import InputManager, InputSnapshot
 from image_modes import ImageMode, discover_image_modes
 from image_geometry import ImageTransform, scaled_image_size
@@ -109,6 +119,74 @@ class ConfigTests(unittest.TestCase):
             glows["SPACE"]["size"][0],
             max(glows[key]["size"][0] for key in KEYS if key != "SPACE"),
         )
+
+
+class PackagedPathTests(unittest.TestCase):
+    def test_packaged_config_uses_local_app_data_and_migrates_legacy_file(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            install_directory = root / "install"
+            local_app_data = root / "local"
+            install_directory.mkdir()
+            legacy_path = install_directory / "config.json"
+            legacy_path.write_text(
+                json.dumps({"window_width": 444, "microphone_device": "legacy"}),
+                encoding="utf-8",
+            )
+
+            with (
+                patch.object(config_manager.sys, "frozen", True, create=True),
+                patch.object(
+                    config_manager.sys,
+                    "executable",
+                    str(install_directory / "iram_tap.exe"),
+                ),
+                patch.dict(os.environ, {"LOCALAPPDATA": str(local_app_data)}),
+            ):
+                expected_path = local_app_data / "iram_tap" / "config.json"
+                self.assertEqual(default_config_path(), expected_path)
+                migrated = load_config()
+                self.assertEqual(migrated["window_width"], 444)
+                self.assertEqual(migrated["microphone_device"], "legacy")
+                self.assertTrue(expected_path.is_file())
+
+                legacy_path.write_text(
+                    json.dumps({"window_width": 555}), encoding="utf-8"
+                )
+                self.assertEqual(load_config()["window_width"], 444)
+
+    def test_relative_assets_prefer_user_files_then_bundled_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            resource_directory = root / "bundle"
+            config_path = root / "user" / "config.json"
+            bundled_asset = resource_directory / "image" / "default.png"
+            user_asset = config_path.parent / "custom.png"
+            bundled_asset.parent.mkdir(parents=True)
+            config_path.parent.mkdir()
+            bundled_asset.write_bytes(b"bundled")
+            user_asset.write_bytes(b"custom")
+
+            with patch.object(
+                config_manager.sys,
+                "_MEIPASS",
+                str(resource_directory),
+                create=True,
+            ):
+                self.assertEqual(
+                    resolve_asset_path("image/default.png", config_path),
+                    bundled_asset,
+                )
+                self.assertEqual(
+                    resolve_asset_path("custom.png", config_path),
+                    user_asset,
+                )
+                self.assertEqual(
+                    resolve_asset_path("missing.png", config_path),
+                    config_path.parent / "missing.png",
+                )
 
 
 class SettingsEditorTests(unittest.TestCase):
@@ -323,13 +401,18 @@ class InputTests(unittest.TestCase):
         manager.process_character_key(" ", False)
         self.assertFalse(manager.snapshot().pressed_keys)
 
-    def test_shortcuts_are_actions_not_glowing_keys(self) -> None:
+    def test_f10_toggles_text_mode_and_f11_f12_have_no_shortcuts(self) -> None:
         manager = InputManager()
-        manager.process_native_key(0x7B, 0x58, True)
-        manager.process_native_key(0x7B, 0x58, True)
+        manager.process_native_key(0x79, 0x44, True)
+        manager.process_native_key(0x79, 0x44, True)
 
-        self.assertEqual(manager.consume_actions(), ["open_settings"])
+        self.assertEqual(manager.consume_actions(), ["toggle_text_mode"])
         self.assertFalse(manager.snapshot().pressed_keys)
+
+        manager.process_native_key(0x79, 0x44, False)
+        manager.process_native_key(0x7A, 0x57, True)
+        manager.process_native_key(0x7B, 0x58, True)
+        self.assertFalse(manager.consume_actions())
 
     def test_numpad_zero_to_nine_select_characters_once_per_press(self) -> None:
         manager = InputManager()
@@ -468,6 +551,96 @@ class WindowTests(unittest.TestCase):
 
         self.assertEqual(captured_alpha, [LOCKED_HOVER_ALPHA])
         presenter.memory_dc = None
+
+
+class TextModeTests(unittest.TestCase):
+    @staticmethod
+    def _app() -> OverlayApp:
+        app = object.__new__(OverlayApp)
+        app.text_mode_active = False
+        app.text_editing = False
+        app.text_value = ""
+        app.text_composition = ""
+        app.previous_foreground_window = None
+        app.visible = True
+        app.screen = Mock()
+        app.screen.get_width.return_value = 300
+        app._apply_windows_options = Mock()
+        app._focus_overlay_for_text_input = Mock()
+        app._restore_previous_focus = Mock()
+        app._sync_tray_state = Mock()
+        return app
+
+    def test_enter_pins_text_and_next_f10_starts_empty(self) -> None:
+        app = self._app()
+        with (
+            patch("main.pygame.key.start_text_input") as start_text_input,
+            patch("main.pygame.key.stop_text_input") as stop_text_input,
+            patch("main.pygame.key.set_text_input_rect"),
+        ):
+            app._toggle_text_mode()
+            self.assertTrue(app.text_mode_active)
+            self.assertTrue(app.text_editing)
+            start_text_input.assert_called_once_with()
+
+            app._handle_text_input_event(
+                Mock(type=pygame.TEXTINPUT, text="  테스트 문구  ")
+            )
+            app._handle_text_input_event(
+                Mock(type=pygame.KEYDOWN, key=pygame.K_RETURN)
+            )
+
+            self.assertTrue(app.text_mode_active)
+            self.assertFalse(app.text_editing)
+            self.assertEqual(app.text_value, "테스트 문구")
+            app._restore_previous_focus.assert_called_once_with()
+
+            app._toggle_text_mode()
+            self.assertFalse(app.text_mode_active)
+            self.assertEqual(app.text_value, "")
+
+            app._toggle_text_mode()
+            self.assertTrue(app.text_mode_active)
+            self.assertTrue(app.text_editing)
+            self.assertEqual(app.text_value, "")
+            self.assertGreaterEqual(stop_text_input.call_count, 2)
+
+    def test_composition_and_backspace_update_input_text(self) -> None:
+        app = self._app()
+        app.text_mode_active = True
+        app.text_editing = True
+
+        self.assertTrue(
+            app._handle_text_input_event(
+                Mock(type=pygame.TEXTEDITING, text="ㅎ")
+            )
+        )
+        self.assertEqual(app.text_composition, "ㅎ")
+
+        app._handle_text_input_event(Mock(type=pygame.TEXTINPUT, text="한글"))
+        self.assertEqual(app.text_value, "한글")
+        self.assertEqual(app.text_composition, "")
+
+        app._handle_text_input_event(
+            Mock(type=pygame.KEYDOWN, key=pygame.K_BACKSPACE)
+        )
+        self.assertEqual(app.text_value, "한")
+
+    def test_enter_commits_pending_ime_composition(self) -> None:
+        app = self._app()
+        app.text_mode_active = True
+        app.text_editing = True
+        app.text_value = "한"
+        app.text_composition = "글"
+
+        with patch("main.pygame.key.stop_text_input"):
+            app._handle_text_input_event(
+                Mock(type=pygame.KEYDOWN, key=pygame.K_RETURN)
+            )
+
+        self.assertEqual(app.text_value, "한글")
+        self.assertEqual(app.text_composition, "")
+        self.assertFalse(app.text_editing)
 
 
 class CharacterSelectionTests(unittest.TestCase):
@@ -655,6 +828,48 @@ class RendererTests(unittest.TestCase):
         )
 
         self.assertEqual(frame.get_at((299, 0)), pygame.Color(12, 34, 56, 255))
+
+    def test_text_bubble_is_drawn_above_keyboard_and_avatar_modes(self) -> None:
+        config = normalise_config({"transparent_background": True})
+        snapshot = InputSnapshot(frozenset(), (0, 0))
+
+        for avatar_mode in (False, True):
+            with self.subTest(avatar_mode=avatar_mode):
+                renderer = LayerRenderer(config, PROJECT_DIR / "config.json")
+                if avatar_mode:
+                    renderer.reload_config(
+                        config,
+                        avatar_expression_paths=(
+                            "image/Iram/iram.png",
+                            "image/Iram/iram1.png",
+                            "image/Iram/iram2.png",
+                        ),
+                    )
+                without_text = renderer.render(
+                    snapshot, 1 / 60, (0.5, 0.5)
+                ).copy()
+                with_text = renderer.render(
+                    snapshot,
+                    1 / 60,
+                    (0.5, 0.5),
+                    text_overlay="HELLO",
+                ).copy()
+
+                changed_pixels = sum(
+                    without_text.get_at((x, y)) != with_text.get_at((x, y))
+                    for x in range(config["window_width"])
+                    for y in range(100)
+                )
+                self.assertGreater(changed_pixels, 0)
+
+    def test_text_bubble_wraps_to_three_lines_and_adds_ellipsis(self) -> None:
+        renderer = LayerRenderer(normalise_config({}), PROJECT_DIR / "config.json")
+        font = renderer._text_font(22)
+
+        lines = renderer._wrap_text("긴문장" * 100, font, 120)
+
+        self.assertEqual(len(lines), 3)
+        self.assertTrue(lines[-1].endswith("..."))
 
     def test_cursor_ratio_moves_right_hand_from_character_perspective(self) -> None:
         config = normalise_config({"smooth_movement": False})

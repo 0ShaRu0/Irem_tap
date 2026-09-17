@@ -157,7 +157,7 @@ class TrayManager:
             self._ready_event.clear()
             self._thread.start()
             if not self._ready_event.wait(timeout=2.0):
-                print("[tray] 트레이 아이콘 초기화가 지연되고 있습니다. F9/F12를 사용할 수 있습니다.")
+                print("[tray] 트레이 아이콘 초기화가 지연되고 있습니다. 오버레이를 우클릭해 메뉴를 열 수 있습니다.")
                 return False
             return self._thread.is_alive()
         except (ImportError, OSError, RuntimeError) as error:

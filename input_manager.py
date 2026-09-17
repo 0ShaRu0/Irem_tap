@@ -25,9 +25,7 @@ VK_CODE_TO_KEY = {ord(key): key for key in KEYS if len(key) == 1}
 VK_CODE_TO_KEY[0x20] = "SPACE"
 SHORTCUT_VK = {
     0x78: "toggle_position_lock",  # F9
-    0x79: "toggle_visibility",  # F10
-    0x7A: "toggle_topmost",  # F11
-    0x7B: "open_settings",  # F12
+    0x79: "toggle_text_mode",  # F10
 }
 NUMPAD_SCAN_CODE_TO_CHARACTER = {
     0x52: 0,

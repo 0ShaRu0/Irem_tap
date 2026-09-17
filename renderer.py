@@ -23,6 +23,11 @@ class LoadedImage:
 
 
 DESK_ANGLE_RADIANS = math.radians(26.0)
+TEXT_BUBBLE_MAX_LINES = 3
+TEXT_BUBBLE_MARGIN = 10
+TEXT_BUBBLE_PADDING_X = 10
+TEXT_BUBBLE_PADDING_Y = 7
+TEXT_BUBBLE_TAIL_HEIGHT = 7
 
 
 class LayerRenderer:
@@ -38,6 +43,8 @@ class LayerRenderer:
         self._avatar_expressions: tuple[LoadedImage, LoadedImage, LoadedImage] | None = None
         self._microphone_level = 0
         self._glow_cache: dict[tuple[int, int, tuple[int, int, int], int], pygame.Surface] = {}
+        self._text_font_path: str | None = None
+        self._text_font_cache: dict[int, pygame.font.Font] = {}
         self.reload_config(config)
 
     def reload_config(
@@ -284,11 +291,137 @@ class LayerRenderer:
             base_y + movement_x * sine + movement_y * cosine,
         )
 
+    def _text_font(self, size: int) -> pygame.font.Font:
+        cached = self._text_font_cache.get(size)
+        if cached is not None:
+            return cached
+        if self._text_font_path is None:
+            malgun_gothic = Path("C:/Windows/Fonts/malgun.ttf")
+            self._text_font_path = (
+                str(malgun_gothic)
+                if malgun_gothic.is_file()
+                else pygame.font.match_font("malgungothic,arial") or ""
+            )
+        font = pygame.font.Font(self._text_font_path or None, size)
+        self._text_font_cache[size] = font
+        return font
+
+    @staticmethod
+    def _wrap_text(
+        text: str,
+        font: pygame.font.Font,
+        max_width: int,
+        max_lines: int = TEXT_BUBBLE_MAX_LINES,
+    ) -> list[str]:
+        lines: list[str] = []
+        current = ""
+        truncated = False
+        normalised = (
+            text.replace("\r\n", "\n").replace("\r", "\n").replace("\t", " ")
+        )
+
+        for character in normalised:
+            if character == "\n":
+                lines.append(current.rstrip())
+                current = ""
+            else:
+                candidate = current + character
+                if not current or font.size(candidate)[0] <= max_width:
+                    current = candidate
+                    continue
+                lines.append(current.rstrip())
+                current = "" if character.isspace() else character
+
+            if len(lines) >= max_lines:
+                truncated = True
+                break
+        else:
+            if current or not lines:
+                lines.append(current.rstrip())
+
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            truncated = True
+        if truncated:
+            ellipsis = "..."
+            last_line = lines[-1].rstrip()
+            while last_line and font.size(last_line + ellipsis)[0] > max_width:
+                last_line = last_line[:-1].rstrip()
+            lines[-1] = last_line + ellipsis
+        return lines
+
+    def _draw_text_bubble(self, text: str | None, editing: bool) -> None:
+        if text is None or (not text and not editing):
+            return
+
+        display_text = (
+            f"{text}|" if text and editing else text or "텍스트를 입력하고 Enter"
+        )
+        font_size = max(14, min(22, round(self.canvas.get_width() * 0.073)))
+        font = self._text_font(font_size)
+        max_bubble_width = max(80, self.canvas.get_width() - TEXT_BUBBLE_MARGIN * 2)
+        max_text_width = max_bubble_width - TEXT_BUBBLE_PADDING_X * 2
+        lines = self._wrap_text(display_text, font, max_text_width)
+        line_height = font.get_linesize()
+        content_width = max(font.size(line)[0] for line in lines)
+        bubble_width = min(
+            max_bubble_width,
+            max(80, content_width + TEXT_BUBBLE_PADDING_X * 2),
+        )
+        body_height = (
+            TEXT_BUBBLE_PADDING_Y * 2
+            + line_height * len(lines)
+            + max(0, len(lines) - 1) * 2
+        )
+        bubble = pygame.Surface(
+            (bubble_width, body_height + TEXT_BUBBLE_TAIL_HEIGHT),
+            pygame.SRCALPHA,
+            32,
+        )
+        body = pygame.Rect(0, 0, bubble_width, body_height)
+        pygame.draw.rect(bubble, (18, 22, 30, 218), body, border_radius=11)
+        pygame.draw.rect(
+            bubble,
+            (255, 255, 255, 185),
+            body,
+            width=1,
+            border_radius=11,
+        )
+        center_x = bubble_width // 2
+        pygame.draw.polygon(
+            bubble,
+            (18, 22, 30, 218),
+            (
+                (center_x - 7, body_height - 1),
+                (center_x + 7, body_height - 1),
+                (center_x, body_height + TEXT_BUBBLE_TAIL_HEIGHT - 1),
+            ),
+        )
+
+        text_color = (255, 255, 255) if text else (200, 206, 216)
+        y = TEXT_BUBBLE_PADDING_Y
+        for line in lines:
+            foreground = font.render(line, True, text_color)
+            outline = font.render(line, True, (0, 0, 0))
+            x = (bubble_width - foreground.get_width()) // 2
+            for offset_x, offset_y in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                bubble.blit(outline, (x + offset_x, y + offset_y))
+            bubble.blit(foreground, (x, y))
+            y += line_height + 2
+
+        self.canvas.blit(
+            bubble,
+            ((self.canvas.get_width() - bubble_width) // 2, TEXT_BUBBLE_MARGIN),
+        )
+
     def render(
         self,
         snapshot: InputSnapshot,
         delta_time: float,
         cursor_ratio: tuple[float, float] | None = None,
+        *,
+        text_overlay: str | None = None,
+        text_editing: bool = False,
     ) -> pygame.Surface:
         if self.config["transparent_background"]:
             self.canvas.fill((0, 0, 0, 0))
@@ -298,36 +431,40 @@ class LayerRenderer:
         if self._avatar_expressions is not None:
             character = self.images["character"]
             self._blit(self.canvas, character.surface, character.position)
-            return self.canvas
+        else:
+            idle = self.images["left_hand_idle"]
+            pressed = self.images["left_hand_pressed"]
+            left = (
+                pressed
+                if snapshot.pressed_keys and pressed.surface is not None
+                else idle
+            )
+            desk_keyboard = self.images["desk_keyboard"]
 
-        idle = self.images["left_hand_idle"]
-        pressed = self.images["left_hand_pressed"]
-        left = pressed if snapshot.pressed_keys and pressed.surface is not None else idle
-        desk_keyboard = self.images["desk_keyboard"]
+            right = self.images["right_hand_mouse"]
+            assert self._right_position is not None
+            self._lerp_position(
+                self._right_position,
+                self._right_target(cursor_ratio),
+                self.config["right_hand_speed"],
+                delta_time,
+            )
 
-        right = self.images["right_hand_mouse"]
-        assert self._right_position is not None
-        self._lerp_position(
-            self._right_position,
-            self._right_target(cursor_ratio),
-            self.config["right_hand_speed"],
-            delta_time,
-        )
-
-        for layer in self.config["layer_order"]:
-            if layer == "left_hand":
-                self._draw_key_glows(snapshot.pressed_keys, desk_keyboard)
-                self._blit(self.canvas, left.surface, left.position)
-            elif layer == "right_hand":
-                self._blit(self.canvas, right.surface, self._right_position)
-                if snapshot.pressed_mouse_buttons:
-                    self._draw_mouse_button_glows(
-                        right,
-                        self._right_position,
-                        snapshot.pressed_mouse_buttons,
-                    )
-            else:
-                loaded = self.images.get(layer)
-                if loaded is not None:
-                    self._blit(self.canvas, loaded.surface, loaded.position)
+            for layer in self.config["layer_order"]:
+                if layer == "left_hand":
+                    self._draw_key_glows(snapshot.pressed_keys, desk_keyboard)
+                    self._blit(self.canvas, left.surface, left.position)
+                elif layer == "right_hand":
+                    self._blit(self.canvas, right.surface, self._right_position)
+                    if snapshot.pressed_mouse_buttons:
+                        self._draw_mouse_button_glows(
+                            right,
+                            self._right_position,
+                            snapshot.pressed_mouse_buttons,
+                        )
+                else:
+                    loaded = self.images.get(layer)
+                    if loaded is not None:
+                        self._blit(self.canvas, loaded.surface, loaded.position)
+        self._draw_text_bubble(text_overlay, text_editing)
         return self.canvas
