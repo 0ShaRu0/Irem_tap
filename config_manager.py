@@ -19,6 +19,7 @@ WINDOW_SCALES = (1.25, 1.5)
 KEY_GLOW_REFERENCE_SIZE = (300, 300)
 MOUSE_GLOW_REFERENCE_SIZE = (300, 300)
 KEYBOARD_IMAGE_DIRECTORY = "image/keybord_Iram"
+APPLICATION_NAME = "iram_tap"
 
 
 def _image(path: str, position: list[int], size: list[int] | None = None) -> dict[str, Any]:
@@ -114,14 +115,34 @@ def _migrate_keyboard_asset_path(path: str) -> str:
 
 
 def application_directory() -> Path:
-    """Return the writable directory beside the script or bundled executable."""
+    """Return the directory beside the script or bundled executable."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
+def resource_directory() -> Path:
+    """Return the source or PyInstaller directory containing bundled assets."""
+    bundle_directory = getattr(sys, "_MEIPASS", None)
+    if bundle_directory:
+        return Path(bundle_directory).resolve()
+    return Path(__file__).resolve().parent
+
+
+def user_data_directory() -> Path:
+    if not getattr(sys, "frozen", False):
+        return application_directory()
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    base = (
+        Path(local_app_data)
+        if local_app_data
+        else Path.home() / "AppData" / "Local"
+    )
+    return base / APPLICATION_NAME
+
+
 def default_config_path() -> Path:
-    return application_directory() / "config.json"
+    return user_data_directory() / "config.json"
 
 
 def _deep_merge(default: Any, loaded: Any) -> Any:
@@ -261,8 +282,30 @@ def normalise_config(config: Any) -> dict[str, Any]:
     return merged
 
 
+def _migrate_legacy_config(config_path: Path) -> None:
+    if not getattr(sys, "frozen", False) or config_path.exists():
+        return
+    if config_path.resolve() != default_config_path().resolve():
+        return
+
+    legacy_path = application_directory() / "config.json"
+    if not legacy_path.is_file() or legacy_path.resolve() == config_path.resolve():
+        return
+    try:
+        legacy_config = load_config_strict(legacy_path)
+        with _config_write_lock(config_path):
+            if config_path.exists():
+                return
+            _save_config_unlocked(legacy_config, config_path)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"[config] 기존 설정을 이전할 수 없습니다: {error}")
+        return
+    print(f"[config] 기존 설정을 이전했습니다: {config_path}")
+
+
 def load_config(path: str | Path | None = None) -> dict[str, Any]:
     config_path = Path(path) if path else default_config_path()
+    _migrate_legacy_config(config_path)
     try:
         return load_config_strict(config_path)
     except FileNotFoundError:
@@ -367,6 +410,15 @@ def update_config(
 def resolve_asset_path(path_value: str, config_path: str | Path | None = None) -> Path:
     path = Path(path_value).expanduser()
     if path.is_absolute():
-        return path
-    base = (Path(config_path).resolve().parent if config_path else application_directory())
-    return (base / path).resolve()
+        return path.resolve()
+
+    config_candidate: Path | None = None
+    if config_path is not None:
+        config_candidate = (Path(config_path).resolve().parent / path).resolve()
+        if config_candidate.exists():
+            return config_candidate
+
+    bundled_candidate = (resource_directory() / path).resolve()
+    if bundled_candidate.exists() or config_candidate is None:
+        return bundled_candidate
+    return config_candidate
