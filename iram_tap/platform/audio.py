@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import math
+import logging
 import threading
 import time
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
 
 DEFAULT_DEVICE_LABEL = "시스템 기본 입력 장치"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -46,8 +47,8 @@ def input_device_names() -> list[str]:
         import sounddevice
 
         entries = _input_device_entries(sounddevice)
-    except Exception as error:
-        print(f"[microphone] 입력 장치 목록을 불러올 수 없습니다: {error}")
+    except Exception:
+        logger.exception("입력 장치 목록 조회 실패")
         return []
     return list(dict.fromkeys(label for _index, label in entries))
 
@@ -57,7 +58,6 @@ class MicrophoneManager:
         self._lock = threading.Lock()
         self._stream: Any = None
         self._started = False
-        self._active = False
         self._expression_level = 0
         self._last_detected_at: float | None = None
         self._settings = MicrophoneSettings.from_config(config)
@@ -106,10 +106,7 @@ class MicrophoneManager:
                     None,
                 )
                 if device is None:
-                    print(
-                        f"[microphone] 선택한 입력 장치를 찾을 수 없어 기본 장치를 사용합니다: "
-                        f"{settings.device}"
-                    )
+                    logger.warning("선택한 마이크가 없어 기본 장치 사용: %s", settings.device)
             information = sounddevice.query_devices(device, "input")
             stream = sounddevice.RawInputStream(
                 samplerate=float(information["default_samplerate"]),
@@ -120,12 +117,12 @@ class MicrophoneManager:
                 callback=self._audio_callback,
             )
             stream.start()
-        except Exception as error:
+        except Exception:
             self._dispose_stream(stream, stop=False)
-            print(f"[microphone] 입력 스트림을 시작할 수 없습니다: {error}")
+            logger.exception("입력 스트림 시작 실패")
             return
         self._stream = stream
-        print(f'[microphone] 입력 감지 시작: {information["name"]}')
+        logger.info("입력 감지 시작: %s", information["name"])
 
     def _audio_callback(
         self,
@@ -149,28 +146,24 @@ class MicrophoneManager:
         with self._lock:
             settings = self._settings
             if not settings.enabled:
-                self._active = False
                 self._expression_level = 0
                 return
             if level >= settings.high_threshold:
-                self._active = True
                 self._expression_level = 2
                 self._last_detected_at = measured_at
             elif level >= settings.threshold:
-                self._active = True
                 self._expression_level = 1
                 self._last_detected_at = measured_at
             elif (
-                self._active
+                self._expression_level > 0
                 and self._last_detected_at is not None
                 and measured_at - self._last_detected_at >= settings.release_delay
             ):
-                self._active = False
                 self._expression_level = 0
 
     def is_active(self) -> bool:
         with self._lock:
-            return self._settings.enabled and self._active
+            return self._settings.enabled and self._expression_level > 0
 
     def expression_level(self) -> int:
         with self._lock:
@@ -181,17 +174,20 @@ class MicrophoneManager:
         if stream is None:
             return
         if stop:
-            with suppress(Exception):
+            try:
                 stream.stop()
+            except Exception:
+                logger.exception("오디오 스트림 정지 실패")
         # A failing stop must still release the device handle.
-        with suppress(Exception):
+        try:
             stream.close()
+        except Exception:
+            logger.exception("오디오 장치 해제 실패")
 
     def _close_stream(self) -> None:
         stream, self._stream = self._stream, None
         self._dispose_stream(stream)
         with self._lock:
-            self._active = False
             self._expression_level = 0
             self._last_detected_at = None
 

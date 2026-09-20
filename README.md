@@ -51,11 +51,11 @@ PNG가 없어도 프로그램은 종료되지 않고 해당 레이어만 건너�
 - 외부 선택 지원: 캐릭터, 손, 책상·키보드, 마이크 열린 입 이미지
 - EXE 내장: 숫자패드 캐릭터 변형, `Iram` 모드 이미지, 기본 아이콘
 
-외부 PNG의 파일 위치와 캔버스 비율은 유지하는 것을 권장합니다. 파일을 저장하는 순간에는 잠깐 이전 이미지나 빈 레이어가 보일 수 있지만 저장이 끝나면 다음 변경 감지 때 다시 불러옵니다. 내장 이미지를 바꾸려면 개발 소스의 PNG를 교체하고 새 EXE를 생성하십시오.
+외부 PNG의 파일 위치와 캔버스 비율은 유지하는 것을 권장합니다. 저장 중 파일을 읽을 수 없으면 마지막 정상 이미지를 유지하고 다음 감지 주기에 다시 시도합니다. 내장 이미지를 바꾸려면 개발 소스의 PNG를 교체하고 새 EXE를 생성하십시오. 이미지 한 변은 최대 4096px이며 비정상 숫자나 과도한 크기의 설정은 적용하지 않습니다.
 
 ## 설치
 
-Python 3.10~3.13을 권장합니다. Python 3.14 이상에서는 `pygame-ce` 호환 패키지가 설치됩니다.
+소스 실행은 Python 3.10 이상을 사용합니다. Python 3.14에서는 `pygame-ce`가 설치됩니다. 배포용 기준 환경은 Windows x64 / Python 3.14이며, 검증한 버전은 `requirements-build.lock`에 고정합니다.
 
 ```bat
 py -m venv .venv
@@ -63,6 +63,8 @@ py -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
+
+개발 검사와 EXE 빌드 도구는 `python -m pip install -r requirements-dev.txt`로 설치합니다. 배포 버전을 재현하려면 별도의 Python 3.14 가상환경에 `requirements-build.lock`을 설치합니다.
 
 ## 실행
 
@@ -108,7 +110,7 @@ python settings.py
 3. Enter를 누르면 입력을 끝내고 상단 말풍선에 문구를 고정합니다.
 4. 다시 F10을 누르면 말풍선을 끄고 문구를 삭제합니다. 다음 F10 입력은 항상 빈 상태로 시작합니다.
 
-말풍선은 반투명 배경으로 표시되며 긴 문구는 최대 3줄까지 자동 줄바꿈됩니다. 넘치는 내용은 말줄임표로 표시됩니다. 입력 중에는 오버레이가 키보드 포커스를 사용하고, Enter로 확정하면 이전에 사용하던 창으로 포커스가 돌아갑니다. F11과 F12는 단축키로 동작하지 않으며 Always On Top과 설정 열기는 우클릭 또는 트레이 메뉴에서 사용할 수 있습니다.
+말풍선은 캐릭터 위의 별도 140px 영역에 흰 배경과 파란 테두리로 표시됩니다. 긴 문구는 최대 3줄까지 자동 줄바꿈되며 넘치는 내용은 말줄임표로 표시됩니다. 입력은 최대 500자이며, 편집 중 숫자패드 모드·캐릭터 전환은 잠시 비활성화됩니다. 입력 중에는 오버레이가 키보드 포커스를 사용하고, Enter로 확정하면 이전 창으로 포커스가 돌아갑니다. F11과 F12는 단축키로 동작하지 않으며 Always On Top과 설정 열기는 우클릭 또는 트레이 메뉴에서 사용할 수 있습니다.
 
 ## 마이크 표정
 
@@ -252,21 +254,26 @@ OBS 설정:
 
 ## 코드 구성 및 검증
 
-- `config_manager.py`: 기본 설정, 값 검증, 설정 파일 저장
-- `image_modes.py`: 이미지 폴더 모드 순서와 모드별 파일 정의
-- `image_geometry.py`: 이미지 크기 계산 및 발광 좌표 변환 (미리보기·렌더러 공용)
-- `settings.py`: 설정 UI, 발광 편집·드래그
-- `renderer.py`: 키보드 레이어 합성과 3단계 캐릭터 이미지 전환
-- `main.py`: 숫자패드 모드 전환, 마이크 표정 우선순위, 변경 반영
-- `microphone_manager.py`: 마이크 스트림 수명 관리와 음량 감지
+- `main.py`, `settings.py`: 실행 진입점
+- `iram_tap/bootstrap.py`, `app.py`: 초기 구성과 메인 루프
+- `iram_tap/config/`: 기본값, 값 검증, 버전 이전, 원자적 설정 저장
+- `iram_tap/assets.py`, `image_modes.py`: 내장·사용자 리소스 경로와 모드 탐색
+- `iram_tap/models.py`, `text_mode.py`: 명령·입력 모델과 F10 상태 전이
+- `iram_tap/platform/`: Windows 창·GDI, 전역 입력, 마이크 장치 어댑터
+- `iram_tap/rendering/`: 이미지 캐시, 레이어 합성, 말풍선, 공통 발광 계산
+- `iram_tap/ui/`: 설정 편집 모델·미리보기와 공통 메뉴·트레이
+
+설정 편집기는 변경한 필드만 최신 파일에 병합합니다. 다른 창에서 같은 필드를 변경했다면 덮어쓰지 않고 다시 읽도록 안내합니다. 구조와 검증 정책은 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)에 정리되어 있습니다.
 
 마이크 장치나 사용 여부를 바꾸면 스트림을 재설정합니다. 감도·복귀 시간은 다음 오디오 처리부터 적용하며, 창 위치·색상 변경은 마이크 스트림과 감지 상태를 유지합니다.
 
 ```bat
 py -m unittest discover -s tests -v
+py -m ruff check .
+py -m mypy
 ```
 
-`tests/test_microphone.py`는 실제 마이크 없이 장치 재설정, 감도 적용과 자원 해제를 검증합니다.
+`tests/unit/`는 설정·상태·마이크 로직을 실제 장치 없이 검증하며, `tests/integration/`는 SDL 렌더링과 앱 어댑터를 검증합니다. 실제 Windows IME와 포커스는 별도 실행 검증이 필요합니다.
 
 ## EXE 빌드
 
@@ -274,6 +281,7 @@ py -m unittest discover -s tests -v
 
 ```bat
 build.bat
+python tools/verify_package.py dist/iram_tap.exe
 ```
 
 결과물은 `dist`에 생성되며 배포에 필요한 파일은 하나입니다.
@@ -285,11 +293,15 @@ dist/
 
 기본 이미지와 아이콘은 EXE에 포함됩니다. 사용자 설정은 `%LOCALAPPDATA%\iram_tap\config.json`에 저장되므로 EXE가 읽기 전용 폴더에 있어도 설정을 저장할 수 있습니다.
 
-기존 방식의 EXE 옆에 `config.json`이 있고 AppData 설정이 아직 없으면 최초 실행 시 설정을 자동으로 이전합니다. 이전 후에는 AppData 설정만 사용합니다. 기본 설정으로 되돌리려면 프로그램을 종료하고 `%LOCALAPPDATA%\iram_tap\config.json`을 삭제하십시오.
+기존 방식의 EXE 옆에 `config.json`이 있고 AppData 설정이 아직 없으면 최초 실행 시 설정을 자동으로 이전합니다. 사용자 이미지의 상대 경로는 기존 위치 기준 절대 경로로 보존하므로 해당 사용자 파일은 원래 위치에 유지해야 합니다. 기본 설정으로 되돌리려면 프로그램과 설정 창을 종료하고 AppData 설정을 삭제한 뒤, EXE 옆의 이전용 `config.json`도 다른 이름으로 보관하여 재이전을 방지하십시오.
+
+`build.bat`은 `IRAM_PYTHON` 환경 변수, 활성 가상환경, 프로젝트 `.venv`, Windows `py` 순서로 Python을 선택합니다. 빌드 진단 자료는 `build/`에 남기며 `clean.bat`으로 제거합니다. 일반 실행은 빌드 없이 EXE 더블클릭만 하면 됩니다.
+
+루트 `config.json`은 개발자별 설정으로 Git에서 제외합니다. 기본값은 `iram_tap/config/defaults.py` 한곳에서 관리합니다.
 
 ## 문제 해결
 
-- 이미지가 안 보임: 개발 환경에서 `python main.py`로 실행해 `[images] 누락된 이미지` 경로를 확인합니다.
+- 이미지가 안 보임: 트레이의 `로그 폴더 열기`에서 이미지 로딩 오류를 확인합니다. 로그는 `%LOCALAPPDATA%\iram_tap\logs`에 저장됩니다.
 - 키가 안 잡힘: 게임이 관리자 권한이면 오버레이도 관리자 권한으로 실행합니다.
 - Space가 반응하지 않음: 최신 `pynput`을 설치하고 오버레이를 재시작합니다.
 - 오른손 이동 폭이 너무 큼: 설정의 오른손 X/Y 이동 범위를 줄입니다.

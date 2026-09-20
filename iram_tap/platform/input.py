@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import logging
 import threading
 from collections import deque
-from dataclasses import dataclass, field
 from typing import Any
 
-from config_manager import KEYS
+from iram_tap.models import KEYS, MOUSE_BUTTONS, InputSnapshot, Action, Command
+from iram_tap.platform.hotkeys import TextHotkey
+
+logger = logging.getLogger(__name__)
 
 # IBM PC set-1 scan codes. These identify physical QWERTY positions independently
 # of the active Windows IME or keyboard text layout.
@@ -24,8 +27,8 @@ SCAN_CODE_TO_KEY = {
 VK_CODE_TO_KEY = {ord(key): key for key in KEYS if len(key) == 1}
 VK_CODE_TO_KEY[0x20] = "SPACE"
 SHORTCUT_VK = {
-    0x78: "toggle_position_lock",  # F9
-    0x79: "toggle_text_mode",  # F10
+    0x78: Command(Action.TOGGLE_LOCK),  # F9
+    0x79: Command(Action.TOGGLE_TEXT),  # F10
 }
 NUMPAD_SCAN_CODE_TO_CHARACTER = {
     0x52: 0,
@@ -40,22 +43,14 @@ NUMPAD_SCAN_CODE_TO_CHARACTER = {
     0x49: 9,
 }
 NUMPAD_SCAN_CODE_TO_ACTION = {
-    0x4E: "next_mode",  # Numpad +
-    0x4A: "previous_mode",  # Numpad -
+    0x4E: Command(Action.NEXT_MODE),  # Numpad +
+    0x4A: Command(Action.PREVIOUS_MODE),  # Numpad -
 }
-MOUSE_BUTTONS = frozenset({"left", "right"})
 
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 WM_SYSKEYDOWN = 0x0104
 WM_SYSKEYUP = 0x0105
-
-
-@dataclass(frozen=True)
-class InputSnapshot:
-    pressed_keys: frozenset[str]
-    mouse_position: tuple[float, float] | None
-    pressed_mouse_buttons: frozenset[str] = field(default_factory=frozenset)
 
 
 class InputManager:
@@ -65,12 +60,13 @@ class InputManager:
         self._lock = threading.Lock()
         self._pressed_keys: set[str] = set()
         self._pressed_shortcuts: set[tuple[str, int]] = set()
-        self._actions: deque[str] = deque()
+        self._actions: deque[Command] = deque()
         self._mouse_position: tuple[float, float] | None = None
         self._pressed_mouse_buttons: set[str] = set()
 
         self._keyboard_listener: Any = None
         self._mouse_listener: Any = None
+        self._text_hotkey: TextHotkey | None = None
 
     def process_native_key(
         self,
@@ -84,17 +80,19 @@ class InputManager:
             key_name = VK_CODE_TO_KEY.get(vk_code)
 
         shortcut_token: tuple[str, int] | None = None
-        shortcut_action: str | None = None
+        shortcut_action: Command | None = None
         if not is_extended and scan_code in NUMPAD_SCAN_CODE_TO_ACTION:
             shortcut_token = ("scan", scan_code)
             shortcut_action = NUMPAD_SCAN_CODE_TO_ACTION[scan_code]
         elif not is_extended and scan_code in NUMPAD_SCAN_CODE_TO_CHARACTER:
             character = NUMPAD_SCAN_CODE_TO_CHARACTER[scan_code]
             shortcut_token = ("scan", scan_code)
-            shortcut_action = f"select_character:{character}"
+            shortcut_action = Command(Action.SELECT_CHARACTER, character)
         elif vk_code in SHORTCUT_VK:
             shortcut_token = ("vk", vk_code)
             shortcut_action = SHORTCUT_VK[vk_code]
+            if vk_code == 0x79 and self._text_hotkey is not None and self._text_hotkey.registered:
+                shortcut_action = None
 
         with self._lock:
             if key_name is not None:
@@ -146,7 +144,7 @@ class InputManager:
             )
             return snapshot
 
-    def consume_actions(self) -> list[str]:
+    def consume_actions(self) -> list[Command]:
         with self._lock:
             actions = list(self._actions)
             self._actions.clear()
@@ -203,17 +201,42 @@ class InputManager:
             on_click=self.process_mouse_click,
             suppress=False,
         )
-        self._keyboard_listener.start()
-        self._mouse_listener.start()
-        self._keyboard_listener.wait()
-        self._mouse_listener.wait()
+        try:
+            if os.name == "nt":
+                self._text_hotkey = TextHotkey(self._emit_text_mode)
+                self._text_hotkey.start()
+            self._keyboard_listener.start()
+            self._mouse_listener.start()
+            self._keyboard_listener.wait()
+            self._mouse_listener.wait()
+        except Exception:
+            self.stop()
+            raise
 
     def stop(self) -> None:
+        if self._text_hotkey is not None:
+            self._text_hotkey.stop()
+            self._text_hotkey = None
         for listener in (self._keyboard_listener, self._mouse_listener):
             if listener is not None:
-                listener.stop()
+                try:
+                    listener.stop()
+                except Exception:
+                    logger.exception("입력 리스너 정지 실패")
         for listener in (self._keyboard_listener, self._mouse_listener):
             if listener is not None and listener.is_alive():
-                listener.join(timeout=1.0)
+                try:
+                    listener.join(timeout=1.0)
+                except Exception:
+                    logger.exception("입력 리스너 종료 대기 실패")
         self._keyboard_listener = None
         self._mouse_listener = None
+        with self._lock:
+            self._pressed_keys.clear()
+            self._pressed_shortcuts.clear()
+            self._pressed_mouse_buttons.clear()
+            self._actions.clear()
+
+    def _emit_text_mode(self) -> None:
+        with self._lock:
+            self._actions.append(Command(Action.TOGGLE_TEXT))

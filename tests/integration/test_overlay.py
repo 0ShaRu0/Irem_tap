@@ -16,8 +16,8 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 import pygame
 from PIL import Image
 
-import config_manager
-from config_manager import (
+from iram_tap.config import repository as config_manager
+from iram_tap.config.repository import (
     DEFAULT_CONFIG,
     KEYS,
     WINDOW_SCALES,
@@ -26,17 +26,18 @@ from config_manager import (
     normalise_config,
     resolve_asset_path,
 )
-from input_manager import InputManager, InputSnapshot
-from image_modes import ImageMode, discover_image_modes
-from image_geometry import ImageTransform, scaled_image_size
-from main import LOCKED_HOVER_ALPHA, LayeredWindowPresenter, OverlayApp
-from microphone_manager import DEFAULT_DEVICE_LABEL
-from renderer import LayerRenderer
-from settings import SettingsEditor
-from tray_manager import TrayManager
+from iram_tap.platform.input import InputManager, InputSnapshot
+from iram_tap.image_modes import ImageMode, discover_image_modes
+from iram_tap.geometry import ImageTransform, scaled_image_size
+from iram_tap.app import LOCKED_HOVER_ALPHA, LayeredWindowPresenter, OverlayApp
+from iram_tap.platform.audio import DEFAULT_DEVICE_LABEL
+from iram_tap.rendering.renderer import LayerRenderer, TEXT_BUBBLE_AREA_HEIGHT
+from iram_tap.ui.settings_editor import SettingsEditor
+from iram_tap.ui.tray import TrayManager
+from iram_tap.models import Action, Command
 
 
-PROJECT_DIR = Path(__file__).resolve().parents[1]
+PROJECT_DIR = Path(__file__).resolve().parents[2]
 
 
 class ConfigTests(unittest.TestCase):
@@ -196,7 +197,7 @@ class SettingsEditorTests(unittest.TestCase):
             ("mouse_glow", "right_hand_mouse", [66.0, 160.0]),
         ):
             with self.subTest(mode=mode):
-                editor = object.__new__(SettingsEditor)
+                editor = SettingsEditor(None, PROJECT_DIR / "config.json", config=normalise_config({}))
                 editor.config = normalise_config({
                     "images": {image_name: {"position": [10, 20]}}
                 })
@@ -227,7 +228,7 @@ class SettingsEditorTests(unittest.TestCase):
                 )
 
     def test_glow_preview_tracks_resized_keyboard(self) -> None:
-        editor = object.__new__(SettingsEditor)
+        editor = SettingsEditor(None, PROJECT_DIR / "config.json", config=normalise_config({}))
         editor.config = normalise_config(
             {
                 "images": {
@@ -245,7 +246,7 @@ class SettingsEditorTests(unittest.TestCase):
         self.assertEqual(geometry, (76.0, 128.0, 14.0, 8.0))
 
     def test_mouse_glow_preview_tracks_resized_right_hand(self) -> None:
-        editor = object.__new__(SettingsEditor)
+        editor = SettingsEditor(None, PROJECT_DIR / "config.json", config=normalise_config({}))
         editor.config = normalise_config(
             {
                 "images": {
@@ -265,7 +266,7 @@ class SettingsEditorTests(unittest.TestCase):
         self.assertEqual(geometry, (31.0, 110.0, 3.3, 2.7))
 
     def test_clicking_selected_hand_starts_image_drag(self) -> None:
-        editor = object.__new__(SettingsEditor)
+        editor = SettingsEditor(None, PROJECT_DIR / "config.json", config=normalise_config({}))
         editor.config = normalise_config({})
         editor.active_image_name = "right_hand_mouse"
         editor.drag_offset = None
@@ -280,7 +281,7 @@ class SettingsEditorTests(unittest.TestCase):
         self.assertEqual(editor.drag_offset, (20.0, 30.0))
 
     def test_dragging_idle_hand_does_not_move_pressed_hand(self) -> None:
-        editor = object.__new__(SettingsEditor)
+        editor = SettingsEditor(None, PROJECT_DIR / "config.json", config=normalise_config({}))
         editor.config = normalise_config({})
         editor.drag_offset = (5.0, 7.0)
         editor.drag_target = "left_hand_idle"
@@ -307,7 +308,7 @@ class SettingsEditorTests(unittest.TestCase):
         editor._redraw_preview.assert_called_once_with()
 
     def test_dragging_mouse_glow_updates_selected_button_only(self) -> None:
-        editor = object.__new__(SettingsEditor)
+        editor = SettingsEditor(None, PROJECT_DIR / "config.json", config=normalise_config({}))
         editor.config = normalise_config({})
         editor.selected_mouse_button = "left"
         editor.drag_offset = (5.0, 7.0)
@@ -334,7 +335,7 @@ class SettingsEditorTests(unittest.TestCase):
         editor._redraw_preview.assert_called_once_with()
 
     def test_collects_microphone_settings_in_runtime_units(self) -> None:
-        editor = object.__new__(SettingsEditor)
+        editor = SettingsEditor(None, PROJECT_DIR / "config.json", config=normalise_config({}))
         editor.config = normalise_config({})
         editor.microphone_enabled = Mock()
         editor.microphone_enabled.get.return_value = True
@@ -406,7 +407,7 @@ class InputTests(unittest.TestCase):
         manager.process_native_key(0x79, 0x44, True)
         manager.process_native_key(0x79, 0x44, True)
 
-        self.assertEqual(manager.consume_actions(), ["toggle_text_mode"])
+        self.assertEqual(manager.consume_actions(), [Command(Action.TOGGLE_TEXT)])
         self.assertFalse(manager.snapshot().pressed_keys)
 
         manager.process_native_key(0x79, 0x44, False)
@@ -436,7 +437,7 @@ class InputTests(unittest.TestCase):
 
         self.assertEqual(
             manager.consume_actions(),
-            [f"select_character:{number}" for _vk, _scan, number in numpad_keys],
+            [Command(Action.SELECT_CHARACTER, number) for _vk, _scan, number in numpad_keys],
         )
         self.assertFalse(manager.snapshot().pressed_keys)
 
@@ -459,7 +460,7 @@ class InputTests(unittest.TestCase):
             manager.process_native_key(vk_code, scan_code, False)
 
         self.assertEqual(
-            manager.consume_actions(), ["next_mode", "previous_mode"]
+            manager.consume_actions(), [Command(Action.NEXT_MODE), Command(Action.PREVIOUS_MODE)]
         )
 
     def test_tracks_latest_mouse_position(self) -> None:
@@ -484,7 +485,7 @@ class InputTests(unittest.TestCase):
 
 class WindowTests(unittest.TestCase):
     def test_transparent_window_is_always_borderless(self) -> None:
-        app = object.__new__(OverlayApp)
+        app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
         app.config = normalise_config(
             {"borderless": False, "transparent_background": True}
         )
@@ -493,7 +494,7 @@ class WindowTests(unittest.TestCase):
         self.assertTrue(app._display_flags() & pygame.NOFRAME)
 
     def test_resize_uses_current_canvas_dimensions(self) -> None:
-        app = object.__new__(OverlayApp)
+        app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
         app.config = normalise_config({})
         app._create_display = Mock()
         app._sync_tray_state = Mock()
@@ -501,10 +502,10 @@ class WindowTests(unittest.TestCase):
         app._resize_window(1.25)
 
         self.assertEqual(app.window_scale, 1.25)
-        app._create_display.assert_called_once_with((375, 375))
+        app._create_display.assert_called_once_with((375, 550))
 
     def test_locked_window_becomes_translucent_only_while_hovered(self) -> None:
-        app = object.__new__(OverlayApp)
+        app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
         app.config = normalise_config({"window_position_locked": True})
         app._window_rect = Mock(return_value=wintypes.RECT(-100, 20, 200, 320))
         user32 = Mock()
@@ -517,8 +518,8 @@ class WindowTests(unittest.TestCase):
 
             user32.GetCursorPos.side_effect = get_cursor_position
 
-        with patch("main.os.name", "nt"), patch(
-            "main.user32_api", return_value=user32
+        with patch("iram_tap.app.os.name", "nt"), patch(
+            "iram_tap.app.user32_api", return_value=user32
         ):
             move_cursor(-100, 20)
             self.assertEqual(app._window_alpha(), LOCKED_HOVER_ALPHA)
@@ -546,7 +547,7 @@ class WindowTests(unittest.TestCase):
             return True
 
         user32.UpdateLayeredWindow.side_effect = update_layered_window
-        with patch("main.user32_api", return_value=user32):
+        with patch("iram_tap.platform.windows.user32_api", return_value=user32):
             presenter.present(1, frame, LOCKED_HOVER_ALPHA)
 
         self.assertEqual(captured_alpha, [LOCKED_HOVER_ALPHA])
@@ -556,11 +557,7 @@ class WindowTests(unittest.TestCase):
 class TextModeTests(unittest.TestCase):
     @staticmethod
     def _app() -> OverlayApp:
-        app = object.__new__(OverlayApp)
-        app.text_mode_active = False
-        app.text_editing = False
-        app.text_value = ""
-        app.text_composition = ""
+        app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
         app.previous_foreground_window = None
         app.visible = True
         app.screen = Mock()
@@ -574,9 +571,9 @@ class TextModeTests(unittest.TestCase):
     def test_enter_pins_text_and_next_f10_starts_empty(self) -> None:
         app = self._app()
         with (
-            patch("main.pygame.key.start_text_input") as start_text_input,
-            patch("main.pygame.key.stop_text_input") as stop_text_input,
-            patch("main.pygame.key.set_text_input_rect"),
+            patch("iram_tap.app.pygame.key.start_text_input") as start_text_input,
+            patch("iram_tap.app.pygame.key.stop_text_input") as stop_text_input,
+            patch("iram_tap.app.pygame.key.set_text_input_rect"),
         ):
             app._toggle_text_mode()
             self.assertTrue(app.text_mode_active)
@@ -589,6 +586,7 @@ class TextModeTests(unittest.TestCase):
             app._handle_text_input_event(
                 Mock(type=pygame.KEYDOWN, key=pygame.K_RETURN)
             )
+            app._commit_text_input()
 
             self.assertTrue(app.text_mode_active)
             self.assertFalse(app.text_editing)
@@ -607,12 +605,11 @@ class TextModeTests(unittest.TestCase):
 
     def test_composition_and_backspace_update_input_text(self) -> None:
         app = self._app()
-        app.text_mode_active = True
-        app.text_editing = True
+        app.text.begin()
 
         self.assertTrue(
             app._handle_text_input_event(
-                Mock(type=pygame.TEXTEDITING, text="ㅎ")
+                pygame.event.Event(pygame.TEXTEDITING, text="ㅎ", start=0, length=1)
             )
         )
         self.assertEqual(app.text_composition, "ㅎ")
@@ -628,15 +625,15 @@ class TextModeTests(unittest.TestCase):
 
     def test_enter_commits_pending_ime_composition(self) -> None:
         app = self._app()
-        app.text_mode_active = True
-        app.text_editing = True
-        app.text_value = "한"
-        app.text_composition = "글"
+        app.text.begin()
+        app.text.insert("한")
+        app.text.compose("글")
 
-        with patch("main.pygame.key.stop_text_input"):
+        with patch("iram_tap.app.pygame.key.stop_text_input"):
             app._handle_text_input_event(
                 Mock(type=pygame.KEYDOWN, key=pygame.K_RETURN)
             )
+            app._commit_text_input()
 
         self.assertEqual(app.text_value, "한글")
         self.assertEqual(app.text_composition, "")
@@ -645,7 +642,7 @@ class TextModeTests(unittest.TestCase):
 
 class CharacterSelectionTests(unittest.TestCase):
     def test_character_actions_switch_variants_and_return_to_default(self) -> None:
-        app = object.__new__(OverlayApp)
+        app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
         app.config = normalise_config({})
         app.image_modes = [ImageMode("keybord_Iram", "keyboard", "keybord_Iram")]
         app.active_mode_index = 0
@@ -684,7 +681,7 @@ class CharacterSelectionTests(unittest.TestCase):
         self.assertIsNone(app.selected_character_open_path)
 
     def test_failed_character_switch_keeps_current_selection(self) -> None:
-        app = object.__new__(OverlayApp)
+        app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
         app.config = normalise_config({})
         app.image_modes = [ImageMode("keybord_Iram", "keyboard", "keybord_Iram")]
         app.active_mode_index = 0
@@ -711,7 +708,7 @@ class CharacterSelectionTests(unittest.TestCase):
         app._asset_state.assert_not_called()
 
     def test_microphone_expression_applies_to_selected_character(self) -> None:
-        app = object.__new__(OverlayApp)
+        app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
         app.renderer = Mock()
         app.microphone_manager = Mock()
         app.microphone_manager.expression_level.return_value = 2
@@ -726,7 +723,7 @@ class CharacterSelectionTests(unittest.TestCase):
         app.renderer.set_microphone_level.assert_called_once_with(2)
 
     def test_mode_actions_wrap_and_restore_keyboard_character(self) -> None:
-        app = object.__new__(OverlayApp)
+        app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
         app.config = normalise_config({})
         app.image_modes = [
             ImageMode("keybord_Iram", "keyboard", "keybord_Iram"),
@@ -848,19 +845,50 @@ class RendererTests(unittest.TestCase):
                 without_text = renderer.render(
                     snapshot, 1 / 60, (0.5, 0.5)
                 ).copy()
-                with_text = renderer.render(
-                    snapshot,
-                    1 / 60,
-                    (0.5, 0.5),
-                    text_overlay="HELLO",
-                ).copy()
+                for text in ("HELLO", "HELLO\nSECOND LINE\nTHIRD LINE", ""):
+                    with self.subTest(text=text):
+                        with_text = renderer.render(
+                            snapshot,
+                            1 / 60,
+                            (0.5, 0.5),
+                            text_overlay=text,
+                            text_editing=not text,
+                        ).copy()
+                        self.assertEqual(
+                            with_text.get_size(),
+                            (config["window_width"], config["window_height"] + TEXT_BUBBLE_AREA_HEIGHT),
+                        )
+                        image_region = with_text.subsurface(
+                            (0, TEXT_BUBBLE_AREA_HEIGHT, *without_text.get_size())
+                        )
+                        self.assertEqual(
+                            pygame.image.tobytes(image_region, "RGBA"),
+                            pygame.image.tobytes(without_text, "RGBA"),
+                        )
+                        bubble_region = with_text.subsurface(
+                            (0, 0, config["window_width"], TEXT_BUBBLE_AREA_HEIGHT)
+                        )
+                        bounds = bubble_region.get_bounding_rect()
+                        self.assertGreater(bounds.top, 0)
+                        self.assertLess(bounds.bottom, TEXT_BUBBLE_AREA_HEIGHT)
+                        colors = {
+                            tuple(bubble_region.get_at((x, y)))
+                            for x in range(bounds.left, bounds.right)
+                            for y in range(bounds.top, bounds.bottom)
+                        }
+                        self.assertIn((255, 255, 255, 255), colors)
+                        self.assertIn((47, 112, 224, 255), colors)
 
-                changed_pixels = sum(
-                    without_text.get_at((x, y)) != with_text.get_at((x, y))
-                    for x in range(config["window_width"])
-                    for y in range(100)
+                reserved = renderer.render(
+                    snapshot, 1 / 60, (0.5, 0.5), reserve_text_space=True
                 )
-                self.assertGreater(changed_pixels, 0)
+                self.assertEqual(reserved.get_size(), with_text.get_size())
+                self.assertEqual(
+                    reserved.subsurface(
+                        (0, 0, config["window_width"], TEXT_BUBBLE_AREA_HEIGHT)
+                    ).get_bounding_rect().height,
+                    0,
+                )
 
     def test_text_bubble_wraps_to_three_lines_and_adds_ellipsis(self) -> None:
         renderer = LayerRenderer(normalise_config({}), PROJECT_DIR / "config.json")
@@ -1072,7 +1100,7 @@ class RendererTests(unittest.TestCase):
         self.assertIs(renderer.images["character"], renderer._selected_character)
 
     def test_keypad_microphone_and_reload_preserve_character_and_hand_state(self) -> None:
-        app = object.__new__(OverlayApp)
+        app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
         app.config = normalise_config({})
         app.image_modes = [ImageMode("keybord_Iram", "keyboard", "keybord_Iram")]
         app.active_mode_index = 0
@@ -1192,7 +1220,7 @@ class ReloadTests(unittest.TestCase):
             character_path = directory / "character.png"
             character_path.write_bytes(b"first")
 
-            app = object.__new__(OverlayApp)
+            app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
             app.config_path = directory / "config.json"
             app.config = normalise_config(
                 {"images": {"character": {"path": str(character_path)}}}
@@ -1228,7 +1256,7 @@ class ReloadTests(unittest.TestCase):
             open_path = directory / "character9_open.png"
             character_path.write_bytes(b"character")
 
-            app = object.__new__(OverlayApp)
+            app = OverlayApp(PROJECT_DIR / "config.json", config=normalise_config({}))
             app.config_path = directory / "config.json"
             app.config = normalise_config({})
             app.image_modes = [
