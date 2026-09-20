@@ -13,6 +13,7 @@ env/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
 
@@ -23,7 +24,11 @@ dist/
 *.egg-info/
 
 # Runtime files
-/.config.json.lock
+/config.json
+.*.json.lock
+*.json.*.bak
+/session.omo
+/artifacts/
 *.tmp
 *.log
 

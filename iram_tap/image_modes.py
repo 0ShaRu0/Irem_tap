@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from config_manager import resolve_asset_path
+from iram_tap.assets import asset_roots
 
 
 KEYBOARD_MODE_NAME = "keybord_Iram"
@@ -31,15 +31,16 @@ class ImageMode:
 
 
 def discover_image_modes(config_path: str | Path) -> list[ImageMode]:
-    image_root = resolve_asset_path("image", config_path)
-    try:
-        directories = {
-            path.name.casefold(): path.name
-            for path in image_root.iterdir()
-            if path.is_dir()
-        }
-    except OSError:
-        directories = {}
+    directories: dict[str, str] = {}
+    for root in reversed(asset_roots(config_path)):
+        try:
+            directories.update({
+                path.name.casefold(): path.name
+                for path in (root / "image").iterdir()
+                if path.is_dir()
+            })
+        except OSError:
+            continue
 
     modes: list[ImageMode] = []
     for expected_name, kind in (

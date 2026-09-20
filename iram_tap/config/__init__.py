@@ -1,0 +1,1 @@
+"""Configuration validation and persistence."""

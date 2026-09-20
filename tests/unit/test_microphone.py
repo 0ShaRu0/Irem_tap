@@ -4,8 +4,8 @@ from array import array
 import unittest
 from unittest.mock import Mock, patch
 
-from config_manager import normalise_config
-from microphone_manager import MicrophoneManager
+from iram_tap.config.validation import normalise_config
+from iram_tap.platform.audio import MicrophoneManager
 
 
 class MicrophoneTests(unittest.TestCase):
@@ -96,7 +96,7 @@ class MicrophoneTests(unittest.TestCase):
         self.manager.process_level(1.0, now=1.0)
         changed = {**self.config, "microphone_device": "Other [MME]"}
 
-        with patch("microphone_manager._input_device_entries", return_value=[(7, "Other [MME]")]):
+        with patch("iram_tap.platform.audio._input_device_entries", return_value=[(7, "Other [MME]")]):
             self.manager.reconfigure(changed)
 
         old_stream.stop.assert_called_once()

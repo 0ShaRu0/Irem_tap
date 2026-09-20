@@ -1,0 +1,42 @@
+name: Windows checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m ruff check .
+      - run: python -m mypy
+      - run: python -m unittest discover -s tests -v
+
+  package:
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: python -m pip install -r requirements-build.lock
+      - run: build.bat
+        shell: cmd
+        env:
+          IRAM_PYTHON: python
+      - run: python tools/verify_package.py dist/iram_tap.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iram_tap-windows
+          path: dist/iram_tap.exe
