@@ -71,15 +71,23 @@ python -m ruff check .
 python -m mypy
 python -m unittest discover -s tests -v
 python -m unittest discover -s tests/unit -v
-build.bat
+python tools/package_windows.py
 python tools/verify_package.py dist/iram_tap.exe
 python tools/smoke_windows.py dist/iram_tap.exe
 ```
 
 The Windows CI checks Python 3.10, 3.13 and 3.14. Release dependencies in
-`requirements-build.lock` target Python 3.14 / Windows x64. `build.bat` prefers
-`IRAM_PYTHON`, then the active venv, then `.venv`, and finally the Windows `py`
-launcher. `clean.bat` removes intermediates, not user data or the executable.
+`requirements-build.lock` target Python 3.14 / Windows x64.
+`tools/package_windows.py` uses the current Python interpreter, stages the build
+in a temporary directory on the project volume, verifies it, and atomically
+replaces `dist/iram_tap.exe`. Intermediate files are removed automatically, and a
+failed build preserves the previous EXE. Close the running EXE before packaging.
+`clean.bat` only removes intermediates left by the former build process.
+
+CI uploads only `dist/iram_tap.exe` as its artifact. Pushing a `v*` tag runs the
+same checks and packaging, then publishes that artifact as a GitHub Release asset.
+The release job alone receives write permission. End users download the EXE from
+Releases, without Python, source files, or a build command.
 
 Before release, test actual Korean IME composition/Enter/Backspace and focus return,
 F9/F10, tray settings, device changes and both image modes on Windows. Headless SDL

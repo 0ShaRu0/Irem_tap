@@ -1,6 +1,19 @@
 # iram_tap
 
+image by https://x.com/Drataniar
+
 Windows 10/11과 OBS에서 사용하는 캐릭터 입력 오버레이입니다. 전역 키보드와 마우스 이동을 감지하므로 게임이나 다른 창이 활성화된 상태에서도 동작합니다.
+
+## 다운로드 및 실행
+
+1. [릴리스 페이지](https://github.com/0ShaRu0/Irem_tap/releases)에서 **Assets → iram_tap.exe**를 다운로드합니다.
+2. 원하는 폴더에 넣고 **iram_tap.exe를 더블클릭**합니다.
+
+Windows 10/11 64비트용입니다. Python 설치, 빌드 실행, 별도 이미지 폴더가 필요하지 않습니다. 이미 프로젝트의 `dist/iram_tap.exe`가 있다면 그 파일만 복사해 사용하거나 전달하면 됩니다.
+
+설정은 프로그램 우클릭 또는 트레이 메뉴에서 열 수 있으며, `%LOCALAPPDATA%\iram_tap`에 자동 저장됩니다. 직접 선택한 외부 이미지는 해당 파일을 유지해야 합니다.
+
+릴리스의 `Source code (zip)`은 개발용 소스입니다. EXE가 등록된 릴리스가 아직 없다면 관리자가 아래 배포 절차로 첫 릴리스를 게시해야 합니다.
 
 ## 동작
 
@@ -42,7 +55,7 @@ PNG가 없어도 프로그램은 종료되지 않고 해당 레이어만 건너�
 
 `image/keybord_Iram/icon.png`는 Windows 작업 표시줄과 알림 영역에 공통으로 사용됩니다. 기본 파일은 캐릭터 얼굴로 만든 투명 PNG이며 단일 EXE 안에 포함됩니다.
 
-기본 아이콘을 바꾸려면 개발 소스의 `image/keybord_Iram/icon.png`를 교체한 뒤 `build.bat`으로 새 EXE를 생성해야 합니다.
+기본 아이콘을 바꾸려면 개발 소스의 `image/keybord_Iram/icon.png`를 교체한 뒤 `python tools/package_windows.py`로 새 EXE를 생성해야 합니다.
 
 ## 이미지 교체
 
@@ -53,7 +66,7 @@ PNG가 없어도 프로그램은 종료되지 않고 해당 레이어만 건너�
 
 외부 PNG의 파일 위치와 캔버스 비율은 유지하는 것을 권장합니다. 저장 중 파일을 읽을 수 없으면 마지막 정상 이미지를 유지하고 다음 감지 주기에 다시 시도합니다. 내장 이미지를 바꾸려면 개발 소스의 PNG를 교체하고 새 EXE를 생성하십시오. 이미지 한 변은 최대 4096px이며 비정상 숫자나 과도한 크기의 설정은 적용하지 않습니다.
 
-## 설치
+## 개발 환경 설치
 
 소스 실행은 Python 3.10 이상을 사용합니다. Python 3.14에서는 `pygame-ce`가 설치됩니다. 배포용 기준 환경은 Windows x64 / Python 3.14이며, 검증한 버전은 `requirements-build.lock`에 고정합니다.
 
@@ -66,7 +79,7 @@ python -m pip install -r requirements.txt
 
 개발 검사와 EXE 빌드 도구는 `python -m pip install -r requirements-dev.txt`로 설치합니다. 배포 버전을 재현하려면 별도의 Python 3.14 가상환경에 `requirements-build.lock`을 설치합니다.
 
-## 실행
+## 개발 환경 실행
 
 개발 환경에서는 다음 명령으로 실행합니다.
 
@@ -74,7 +87,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-배포 환경에서는 `iram_tap.exe` 하나만 원하는 위치에 두고 더블클릭합니다. Python 설치나 `build.bat` 실행은 필요하지 않습니다.
+배포 환경에서는 `iram_tap.exe` 하나만 원하는 위치에 두고 더블클릭합니다. Python 설치나 빌드 실행은 필요하지 않습니다.
 
 설정 화면만 열려면 다음 명령을 사용합니다.
 
@@ -280,7 +293,7 @@ py -m mypy
 이 단계는 개발자가 소스나 내장 이미지를 변경해 새 EXE를 만들 때만 필요합니다. 완성된 EXE 사용자는 빌드를 실행하지 않습니다.
 
 ```bat
-build.bat
+python tools/package_windows.py
 python tools/verify_package.py dist/iram_tap.exe
 ```
 
@@ -295,7 +308,20 @@ dist/
 
 기존 방식의 EXE 옆에 `config.json`이 있고 AppData 설정이 아직 없으면 최초 실행 시 설정을 자동으로 이전합니다. 사용자 이미지의 상대 경로는 기존 위치 기준 절대 경로로 보존하므로 해당 사용자 파일은 원래 위치에 유지해야 합니다. 기본 설정으로 되돌리려면 프로그램과 설정 창을 종료하고 AppData 설정을 삭제한 뒤, EXE 옆의 이전용 `config.json`도 다른 이름으로 보관하여 재이전을 방지하십시오.
 
-`build.bat`은 `IRAM_PYTHON` 환경 변수, 활성 가상환경, 프로젝트 `.venv`, Windows `py` 순서로 Python을 선택합니다. 빌드 진단 자료는 `build/`에 남기며 `clean.bat`으로 제거합니다. 일반 실행은 빌드 없이 EXE 더블클릭만 하면 됩니다.
+`tools/package_windows.py`는 실행한 Python 환경으로 EXE를 만들고 내장 파일을 검증한 다음 `dist/iram_tap.exe`를 교체합니다. 빌드 중간 파일은 임시 폴더에 만들고 종료 시 자동 정리합니다. 빌드나 검증에 실패하면 기존 EXE를 유지합니다. 교체 전에 실행 중인 프로그램을 종료하십시오.
+
+## GitHub 배포 (개발자용)
+
+GitHub Actions가 소스 검사 후 EXE를 자동 생성합니다. 일반 커밋의 결과물은 Actions의 `iram_tap-windows` 아티팩트에서 받을 수 있습니다.
+
+새 버전을 배포하려면 변경 사항을 커밋하고 GitHub에 올린 뒤, 해당 커밋에 새 `v` 버전 태그를 붙여 올립니다. 예를 들어 아직 사용하지 않은 버전 번호로 다음을 실행합니다.
+
+```bat
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+검사와 패키징이 모두 성공하면 해당 태그의 GitHub Release가 생성되고 `iram_tap.exe` 하나가 첨부됩니다. 사용자는 릴리스에서 EXE만 다운로드하면 됩니다. 개발 소스와 빌드 도구는 저장소에서 관리하고 사용자에게 전달하는 파일은 `dist/iram_tap.exe`로 한정합니다.
 
 루트 `config.json`은 개발자별 설정으로 Git에서 제외합니다. 기본값은 `iram_tap/config/defaults.py` 한곳에서 관리합니다.
 

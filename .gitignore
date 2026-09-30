@@ -45,3 +45,4 @@ Desktop.ini
 .build/
 .tests/
 .dist/
+.package-*/
