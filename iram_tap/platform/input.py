@@ -29,6 +29,7 @@ VK_CODE_TO_KEY[0x20] = "SPACE"
 SHORTCUT_VK = {
     0x78: Command(Action.TOGGLE_LOCK),  # F9
     0x79: Command(Action.TOGGLE_TEXT),  # F10
+    0x7A: Command(Action.TOGGLE_VOICE),  # F11
 }
 NUMPAD_SCAN_CODE_TO_CHARACTER = {
     0x52: 0,
@@ -67,6 +68,7 @@ class InputManager:
         self._keyboard_listener: Any = None
         self._mouse_listener: Any = None
         self._text_hotkey: TextHotkey | None = None
+        self._voice_hotkey: TextHotkey | None = None
 
     def process_native_key(
         self,
@@ -92,6 +94,8 @@ class InputManager:
             shortcut_token = ("vk", vk_code)
             shortcut_action = SHORTCUT_VK[vk_code]
             if vk_code == 0x79 and self._text_hotkey is not None and self._text_hotkey.registered:
+                shortcut_action = None
+            if vk_code == 0x7A and self._voice_hotkey is not None and self._voice_hotkey.registered:
                 shortcut_action = None
 
         with self._lock:
@@ -205,6 +209,8 @@ class InputManager:
             if os.name == "nt":
                 self._text_hotkey = TextHotkey(self._emit_text_mode)
                 self._text_hotkey.start()
+                self._voice_hotkey = TextHotkey(self._emit_voice, virtual_key=0x7A, label="F11")
+                self._voice_hotkey.start()
             self._keyboard_listener.start()
             self._mouse_listener.start()
             self._keyboard_listener.wait()
@@ -214,6 +220,9 @@ class InputManager:
             raise
 
     def stop(self) -> None:
+        if self._voice_hotkey is not None:
+            self._voice_hotkey.stop()
+            self._voice_hotkey = None
         if self._text_hotkey is not None:
             self._text_hotkey.stop()
             self._text_hotkey = None
@@ -240,3 +249,7 @@ class InputManager:
     def _emit_text_mode(self) -> None:
         with self._lock:
             self._actions.append(Command(Action.TOGGLE_TEXT))
+
+    def _emit_voice(self) -> None:
+        with self._lock:
+            self._actions.append(Command(Action.TOGGLE_VOICE))

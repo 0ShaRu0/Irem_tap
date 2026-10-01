@@ -28,6 +28,8 @@ def verify(executable: Path) -> None:
         "iram_tap.bootstrap", "iram_tap.ui.settings_editor", "pygame", "PIL.Image",
         "tkinter", "sounddevice", "pynput.keyboard._win32", "pynput.mouse._win32",
         "pystray._win32",
+        "iram_tap.voice", "iram_tap.playback_activity", "iram_tap.config.secrets", "faster_whisper",
+        "numpy", "ctranslate2", "onnxruntime", "av", "tokenizers",
     ):
         assert required in modules.toc, f"Missing runtime module: {required}"
     print("Package verified: runtime and all default images included; no user config bundled.")

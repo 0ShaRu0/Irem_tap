@@ -25,3 +25,8 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["iram_tap.models", "iram_tap.text_mode", "iram_tap.ui.settings_model", "iram_tap.config.*"]
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["numpy", "numpy.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true

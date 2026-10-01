@@ -18,6 +18,7 @@ coverage.xml
 htmlcov/
 
 # Build outputs
+*.exe
 build/
 dist/
 *.spec
@@ -46,3 +47,6 @@ Desktop.ini
 .tests/
 .dist/
 .package-*/
+.voice-deps/
+.check-tools/
+/speech-models/

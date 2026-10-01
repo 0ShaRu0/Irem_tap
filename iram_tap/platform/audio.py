@@ -61,6 +61,11 @@ class MicrophoneManager:
         self._expression_level = 0
         self._last_detected_at: float | None = None
         self._settings = MicrophoneSettings.from_config(config)
+        self._recording: list[bytes] | None = None
+        self._recorded_bytes = 0
+        self._recording_error = False
+        self._sample_rate = 48000
+        self._recording_limit = 0
 
     def reconfigure(self, config: dict[str, Any]) -> None:
         settings = MicrophoneSettings.from_config(config)
@@ -85,10 +90,10 @@ class MicrophoneManager:
         self._started = True
         self._open_stream()
 
-    def _open_stream(self) -> None:
+    def _open_stream(self, *, force: bool = False) -> None:
         with self._lock:
             settings = self._settings
-        if not settings.enabled:
+        if not settings.enabled and not force:
             return
 
         stream: Any = None
@@ -108,6 +113,7 @@ class MicrophoneManager:
                 if device is None:
                     logger.warning("선택한 마이크가 없어 기본 장치 사용: %s", settings.device)
             information = sounddevice.query_devices(device, "input")
+            self._sample_rate = int(information["default_samplerate"])
             stream = sounddevice.RawInputStream(
                 samplerate=float(information["default_samplerate"]),
                 blocksize=0,
@@ -140,6 +146,45 @@ class MicrophoneManager:
         except (TypeError, ValueError):
             return
         self.process_level(level)
+        with self._lock:
+            if self._recording is not None:
+                if _status:
+                    self._recording_error = True
+                remaining = self._recording_limit - self._recorded_bytes
+                chunk = bytes(input_data)[:remaining]
+                if chunk:
+                    self._recording.append(chunk)
+                    self._recorded_bytes += len(chunk)
+
+    def begin_recording(self, seconds: int = 30) -> None:
+        if self._stream is None:
+            self._open_stream(force=True)
+        if self._stream is None:
+            raise ValueError("마이크를 열 수 없습니다. 입력 장치와 권한을 확인하세요.")
+        with self._lock:
+            self._recording = []
+            self._recorded_bytes = 0
+            self._recording_error = False
+            self._recording_limit = self._sample_rate * 2 * seconds
+
+    def end_recording(self) -> tuple[bytes, int]:
+        with self._lock:
+            chunks, self._recording = self._recording, None
+            failed = self._recording_error
+            rate = self._sample_rate
+            enabled = self._settings.enabled
+        if not enabled:
+            self._close_stream()
+        if failed:
+            raise ValueError("마이크 입력이 끊겼습니다. 다시 녹음하세요.")
+        return b"".join(chunks or []), rate
+
+    def discard_recording(self) -> None:
+        with self._lock:
+            self._recording = None
+            enabled = self._settings.enabled
+        if not enabled:
+            self._close_stream()
 
     def process_level(self, level: float, now: float | None = None) -> None:
         measured_at = time.monotonic() if now is None else now
@@ -192,5 +237,7 @@ class MicrophoneManager:
             self._last_detected_at = None
 
     def stop(self) -> None:
+        with self._lock:
+            self._recording = None
         self._started = False
         self._close_stream()

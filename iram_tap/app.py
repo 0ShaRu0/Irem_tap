@@ -26,6 +26,7 @@ from iram_tap.image_modes import (
     discover_image_modes,
 )
 from iram_tap.platform.audio import MicrophoneManager
+from iram_tap.voice import VoiceController
 from iram_tap.rendering.renderer import LayerRenderer, TEXT_BUBBLE_AREA_HEIGHT
 from iram_tap.ui.tray import TrayManager
 from iram_tap.assets import application_directory, file_signature
@@ -64,6 +65,8 @@ class OverlayApp:
         self.window_scale = 1.0
         self.last_known_window_position: tuple[int, int] | None = None
         self.pending_position_save_at: float | None = None
+        self.drag_origin: tuple[int, int, int, int] | None = None
+        self.drag_handle: int | None = None
         self.applied_window_alpha: int | None = None
         self.text = TextMode()
         self.previous_foreground_window: int | None = None
@@ -90,6 +93,8 @@ class OverlayApp:
         self.resources.add(self.input_manager.stop)
         self.microphone_manager = MicrophoneManager(self.config)
         self.resources.add(self.microphone_manager.stop)
+        self.voice = VoiceController(self.config, self.microphone_manager, self.config_path)
+        self.resources.add(self.voice.close)
         self.tray_manager = TrayManager(icon_path)
         self.resources.add(self.tray_manager.stop)
         self._reload_active_mode()
@@ -100,6 +105,7 @@ class OverlayApp:
     def close(self) -> None:
         if self._started:
             try:
+                self._finish_window_drag()
                 if self.text.editing:
                     self._restore_previous_focus()
             finally:
@@ -141,6 +147,7 @@ class OverlayApp:
         return flags
 
     def _create_display(self, size: tuple[int, int] | None = None) -> None:
+        self._finish_window_drag()
         if self.layered_presenter is not None:
             self.layered_presenter.close()
         self.applied_window_alpha = None
@@ -215,6 +222,16 @@ class OverlayApp:
     def _visible_window_position(
         self, x: int, y: int, width: int, height: int
     ) -> tuple[int, int]:
+        if self._is_borderless():
+            # The reserved bubble area can be entirely transparent. Recover using
+            # the character canvas rather than counting that area as reachable.
+            inset = round(height * TEXT_BUBBLE_AREA_HEIGHT / (
+                self.config["window_height"] + TEXT_BUBBLE_AREA_HEIGHT
+            ))
+            visible_x, visible_y = self.window.visible_position(
+                x, y + inset, width, max(1, height - inset)
+            )
+            return visible_x, visible_y - inset
         return self.window.visible_position(x, y, width, height)
 
     def _apply_saved_window_position(self) -> None:
@@ -257,6 +274,15 @@ class OverlayApp:
         if not window_handle:
             return
         user32 = user32_api()
+        if self._is_borderless():
+            rectangle = self._window_rect()
+            cursor = wintypes.POINT()
+            if rectangle is None or not user32.GetCursorPos(ctypes.byref(cursor)):
+                return
+            self.drag_origin = (cursor.x, cursor.y, rectangle.left, rectangle.top)
+            self.drag_handle = window_handle
+            user32.SetCapture(window_handle)
+            return
         user32.ReleaseCapture()
         user32.SendMessageW(window_handle, 0x00A1, 0x0002, 0)  # WM_NCLBUTTONDOWN, HTCAPTION
         rectangle = self._window_rect()
@@ -268,10 +294,42 @@ class OverlayApp:
             self._save_runtime_config(("window_x", "window_y"))
             logger.info("위치 저장: %s, %s", rectangle.left, rectangle.top)
 
+    def _update_window_drag(self) -> None:
+        if self.drag_origin is None:
+            return
+        user32 = user32_api()
+        if (self.config["window_position_locked"]
+                or user32.GetCapture() != self.drag_handle
+                or not (user32.GetAsyncKeyState(0x01) & 0x8000)):
+            self._finish_window_drag()
+            return
+        cursor = wintypes.POINT()
+        if user32.GetCursorPos(ctypes.byref(cursor)):
+            start_x, start_y, window_x, window_y = self.drag_origin
+            self._move_window(window_x + cursor.x - start_x, window_y + cursor.y - start_y)
+
+    def _finish_window_drag(self) -> None:
+        if self.drag_origin is None:
+            return
+        handle = self.drag_handle
+        self.drag_origin = None
+        self.drag_handle = None
+        user32 = user32_api()
+        if user32.GetCapture() == handle:
+            user32.ReleaseCapture()
+        rectangle = self._window_rect()
+        if rectangle is not None:
+            position = (rectangle.left, rectangle.top)
+            self.config["window_x"], self.config["window_y"] = position
+            self.last_known_window_position = position
+            self.pending_position_save_at = None
+            self._save_runtime_config(("window_x", "window_y"))
+
     def _set_topmost(self, enabled: bool) -> None:
         self.window.topmost(self._window_handle(), enabled)
 
     def _toggle_visibility(self) -> None:
+        self._finish_window_drag()
         if self.visible and self.text_mode_active:
             self._stop_text_mode()
         self.visible = not self.visible
@@ -294,6 +352,7 @@ class OverlayApp:
         self._sync_tray_state()
 
     def _toggle_position_lock(self) -> None:
+        self._finish_window_drag()
         self.config["window_position_locked"] = not self.config["window_position_locked"]
         self._remember_window_position()
         self._apply_windows_options()
@@ -463,8 +522,10 @@ class OverlayApp:
 
     def _sync_microphone_character(self) -> None:
         # The app decides expression priority; the renderer only swaps cached images.
+        voice = getattr(self, "voice", None)
+        level = voice.expression_level() if voice is not None else None
         self.renderer.set_microphone_level(
-            self.microphone_manager.expression_level()
+            self.microphone_manager.expression_level() if level is None else level
         )
 
     def _resize_window(self, scale: float) -> None:
@@ -598,6 +659,7 @@ class OverlayApp:
             return
 
         if config_reloaded:
+            self.voice.reconfigure(self.config)
             self.microphone_manager.reconfigure(self.config)
         self._reload_active_mode()
         icon_path = resolve_asset_path(self.config["icon_path"], self.config_path)
@@ -617,13 +679,19 @@ class OverlayApp:
         window_moved_event = getattr(pygame, "WINDOWMOVED", -1)
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
+                self._finish_window_drag()
                 self.running = False
             elif self._handle_text_input_event(event):
                 continue
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 self._start_window_drag()
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                self._finish_window_drag()
                 self._show_context_menu()
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                self._finish_window_drag()
+            elif event.type == pygame.WINDOWFOCUSLOST:
+                self._finish_window_drag()
             elif event.type == window_moved_event:
                 rectangle = self._window_rect()
                 moved_position = (
@@ -650,6 +718,7 @@ class OverlayApp:
                 )
                 self._create_display((width, height))
                 self._sync_tray_state()
+        self._update_window_drag()
         # SDL may queue the final TEXTINPUT after the Enter KEYDOWN.
         if self.text.commit_pending:
             self._commit_text_input()
@@ -685,6 +754,8 @@ class OverlayApp:
             self._toggle_position_lock()
         elif kind is Action.TOGGLE_TEXT:
             self._toggle_text_mode()
+        elif kind is Action.TOGGLE_VOICE:
+            self.voice.toggle()
         elif kind is Action.SELECT_CHARACTER and command.value is not None:
             self._select_character(int(command.value))
         elif kind is Action.NEXT_MODE:
@@ -761,6 +832,7 @@ class OverlayApp:
                 self._handle_shortcuts()
                 self._save_pending_window_position()
                 self._reload_config_if_changed()
+                self.voice.poll()
                 self._sync_microphone_character()
                 snapshot = self.input_manager.snapshot()
                 if self.visible:
@@ -768,7 +840,7 @@ class OverlayApp:
                         snapshot,
                         delta_time,
                         self._cursor_ratio(snapshot.mouse_position),
-                        text_overlay=self.text.display_text,
+                        text_overlay=self.text.display_text if self.text_editing else (self.voice.status or self.text.display_text),
                         text_editing=self.text_editing,
                         reserve_text_space=True,
                     )

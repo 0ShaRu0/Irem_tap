@@ -12,6 +12,7 @@ WINDOW_SCALES = (1.25, 1.5)
 class Action(str, Enum):
     TOGGLE_LOCK = "toggle_position_lock"
     TOGGLE_TEXT = "toggle_text_mode"
+    TOGGLE_VOICE = "toggle_voice"
     TOGGLE_VISIBILITY = "toggle_visibility"
     TOGGLE_TOPMOST = "toggle_topmost"
     OPEN_SETTINGS = "open_settings"
