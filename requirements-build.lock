@@ -15,3 +15,27 @@ pywin32-ctypes==0.2.3
 setuptools==84.0.0
 six==1.17.0
 pycparser==3.0
+# Local speech recognition and selected-device PCM playback.
+faster-whisper==1.2.1
+numpy==2.5.3
+ctranslate2==4.8.2
+onnxruntime==1.30.0
+av==16.1.0
+tokenizers==0.23.2
+huggingface-hub==1.33.0
+anyio==4.15.1
+certifi==2026.7.22
+click==8.5.0
+colorama==0.4.6
+filelock==4.0.7
+flatbuffers==25.12.19
+fsspec==2026.9.0
+h11==0.16.0
+hf-xet==1.6.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+protobuf==7.36.2
+pyyaml==6.0.3
+tqdm==4.70.1
+typing-extensions==4.16.0

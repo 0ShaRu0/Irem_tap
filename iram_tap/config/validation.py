@@ -97,8 +97,13 @@ def normalise_config(config: Any) -> dict[str, Any]:
     ):
         merged[name] = _boolean(merged[name], DEFAULT_CONFIG[name])
     merged["background_color"] = _color(merged["background_color"], DEFAULT_CONFIG["background_color"])
-    for name in ("icon_path", "microphone_device", "microphone_open_image"):
+    for name in ("icon_path", "microphone_device", "microphone_open_image",
+                 "fish_api_key_protected", "fish_reference_id", "fish_model",
+                 "fish_local_device", "fish_virtual_device"):
         merged[name] = str(merged[name])
+    if merged["fish_output_mode"] not in ("local", "virtual"):
+        merged["fish_output_mode"] = "local"
+    merged["fish_volume"] = _number(merged["fish_volume"], 1.0, 0.0, 1.0)
     requested = merged["layer_order"]
     layers = list(dict.fromkeys(x for x in requested if isinstance(x, str) and x in LAYER_NAMES)) if isinstance(requested, list) else []
     merged["layer_order"] = layers if set(layers) == set(LAYER_NAMES) else list(LAYER_NAMES)

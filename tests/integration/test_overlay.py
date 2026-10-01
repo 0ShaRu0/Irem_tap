@@ -402,7 +402,7 @@ class InputTests(unittest.TestCase):
         manager.process_character_key(" ", False)
         self.assertFalse(manager.snapshot().pressed_keys)
 
-    def test_f10_toggles_text_mode_and_f11_f12_have_no_shortcuts(self) -> None:
+    def test_f10_text_f11_voice_and_f12_unused(self) -> None:
         manager = InputManager()
         manager.process_native_key(0x79, 0x44, True)
         manager.process_native_key(0x79, 0x44, True)
@@ -412,8 +412,13 @@ class InputTests(unittest.TestCase):
 
         manager.process_native_key(0x79, 0x44, False)
         manager.process_native_key(0x7A, 0x57, True)
+        manager.process_native_key(0x7A, 0x57, True)
         manager.process_native_key(0x7B, 0x58, True)
+        self.assertEqual(manager.consume_actions(), [Command(Action.TOGGLE_VOICE)])
         self.assertFalse(manager.consume_actions())
+        manager.process_native_key(0x7A, 0x57, False)
+        manager.process_native_key(0x7A, 0x57, True)
+        self.assertEqual(manager.consume_actions(), [Command(Action.TOGGLE_VOICE)])
 
     def test_numpad_zero_to_nine_select_characters_once_per_press(self) -> None:
         manager = InputManager()

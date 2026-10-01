@@ -180,8 +180,9 @@ def smoke(executable: Path) -> None:
                 pinned.save(captures / "pinned.png")
                 raise AssertionError("Reopened input was not reset; diagnostic crops in artifacts/smoke")
             tap(Key.f10)
-            for key in (Key.f11, Key.f12):
-                tap(key)
+            tap(Key.f11)
+            assert blue_count(top_image(handle)) > before + 20, "F11 did not show missing-key guidance"
+            tap(Key.f12)
             assert not windows("iram_tap 설정"), "F12 still opens settings"
             user32.PostMessageW(handle, 0x0010, 0, 0)
             process.wait(timeout=10)

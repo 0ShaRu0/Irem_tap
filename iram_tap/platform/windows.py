@@ -63,6 +63,9 @@ def user32_api() -> Any:
         "ShowWindow": ((h, i), b),
         "GetWindowRect": ((h, pointer(wintypes.RECT)), b),
         "ReleaseCapture": ((), b),
+        "SetCapture": ((h,), h),
+        "GetCapture": ((), h),
+        "GetAsyncKeyState": ((i,), ctypes.c_short),
         "SendMessageW": ((h, u, wintypes.WPARAM, wintypes.LPARAM), ctypes.c_ssize_t),
         "MonitorFromRect": ((pointer(wintypes.RECT), wintypes.DWORD), wintypes.HANDLE),
         "MonitorFromPoint": ((wintypes.POINT, wintypes.DWORD), wintypes.HANDLE),
@@ -247,6 +250,10 @@ class WindowController:
         if not monitor or not user32.GetMonitorInfoW(monitor, ctypes.byref(information)):
             return x, y
         work = information.rcWork
+        # Preserve partially off-screen positions, including negative coordinates.
+        if (x < work.right and x + width > work.left
+                and y < work.bottom and y + height > work.top):
+            return x, y
         return (
             max(work.left, min(x, work.right - width)),
             max(work.top, min(y, work.bottom - height)),

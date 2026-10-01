@@ -25,6 +25,7 @@ from iram_tap.geometry import ImageTransform, scaled_image_size
 from iram_tap.config.validation import finite_number, normalise_config
 from iram_tap.ui.settings_model import SettingsModel
 from iram_tap.ui.preview import PreviewRenderer
+from iram_tap.ui.fish_settings import create_fish_tab
 
 
 IMAGE_NAMES = tuple(DEFAULT_CONFIG["images"])
@@ -169,6 +170,8 @@ class SettingsEditor:
         self.notebook.add(self.mouse_glow_tab, text="마우스 발광")
         self.notebook.add(self.microphone_tab, text="마이크")
         self.notebook.add(self.motion_tab, text="창/동작")
+        fish_container, self.fish_tab = create_fish_tab(self.notebook, self.config, self.config_path)
+        self.notebook.add(fish_container, text="Fish Audio")
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
         self._build_image_tab(self.image_tab)
         self._build_glow_tab(self.glow_tab)
@@ -706,6 +709,7 @@ class SettingsEditor:
                 raise ValueError("이미지와 발광 설정에는 올바른 숫자를 입력하세요.")
             self._collect_general_fields()
             self._collect_microphone_fields()
+            self.fish_tab.collect(self.config)
             return normalise_config(self.config)
         finally:
             self.config = original
@@ -721,6 +725,7 @@ class SettingsEditor:
         self._redraw_preview()
 
     def _sync_general_variables(self) -> None:
+        self.fish_tab.load(self.config)
         self.window_width.set(str(self.config["window_width"]))
         self.window_height.set(str(self.config["window_height"]))
         self.window_x.set(
